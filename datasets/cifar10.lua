@@ -1,18 +1,7 @@
---
---  Copyright (c) 2016, Facebook, Inc.
---  All rights reserved.
---
---  This source code is licensed under the BSD-style license found in the
---  LICENSE file in the root directory of this source tree. An additional grant
---  of patent rights can be found in the PATENTS file in the same directory.
---
---  CIFAR-10 dataset loader
---
-
 local t = require 'datasets/transforms'
 
 local M = {}
-local CifarDataset = torch.class('resnet.CifarDataset', M)
+local CifarDataset = torch.class('nn.CifarDataset', M)
 
 function CifarDataset:__init(imageInfo, opt, split)
    assert(imageInfo[split], split)

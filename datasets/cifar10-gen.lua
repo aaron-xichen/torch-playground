@@ -1,17 +1,3 @@
---
---  Copyright (c) 2016, Facebook, Inc.
---  All rights reserved.
---
---  This source code is licensed under the BSD-style license found in the
---  LICENSE file in the root directory of this source tree. An additional grant
---  of patent rights can be found in the PATENTS file in the same directory.
---
---  Script to compute list of ImageNet filenames and classes
---
---  This automatically downloads the CIFAR-10 dataset from
---  http://torch7.s3-website-us-east-1.amazonaws.com/data/cifar-10-torch.tar.gz
---
-
 local URL = 'http://torch7.s3-website-us-east-1.amazonaws.com/data/cifar-10-torch.tar.gz'
 
 local M = {}

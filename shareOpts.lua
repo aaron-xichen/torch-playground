@@ -28,6 +28,7 @@ function M.option()
     cmd:option('-shareGradInput',  'false', 'Share gradInput tensors to reduce memory usage')
     cmd:option('-experimentsName',  'none',  'The name of this experiment')
     ------------- Data options ------------------------
+    cmd:option('-data',              '/home/chenxi/dataset/imagenet/',   'imagenet data path')
     cmd:option('-dataset',            'none',       'Dataset want to load')
     cmd:option('-nThreads',        4, 'number of data loading threads')
     ------------- Training options --------------------

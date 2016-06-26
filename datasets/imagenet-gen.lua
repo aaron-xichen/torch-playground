@@ -1,18 +1,3 @@
---
---  Copyright (c) 2016, Facebook, Inc.
---  All rights reserved.
---
---  This source code is licensed under the BSD-style license found in the
---  LICENSE file in the root directory of this source tree. An additional grant
---  of patent rights can be found in the PATENTS file in the same directory.
---
---  Script to compute list of ImageNet filenames and classes
---
---  This generates a file gen/imagenet.t7 which contains the list of all
---  ImageNet training and validation images and their classes. This script also
---  works for other datasets arragned with the same layout.
---
-
 local sys = require 'sys'
 local ffi = require 'ffi'
 
@@ -31,7 +16,7 @@ local function findClasses(dir)
       end
    end
 
-   -- assert(#classList == 1000, 'expected 1000 ImageNet classes')
+   assert(#classList == 1000, 'expected 1000 ImageNet classes')
    return classList, classToIdx
 end
 
