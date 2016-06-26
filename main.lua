@@ -28,6 +28,7 @@ cutorch.manualSeedAll(opt.manualSeed)
 local DataLoader = require('project/' .. opt.project .. '/' .. opt.dataloader)
 local trainLoader, valLoader = DataLoader.create(opt)
 
+
 -- Creating model
 local models = require('project/' .. opt.project .. '/models/init')
 local model, criterion, optimState, epoch = models.setup(opt)
@@ -44,7 +45,7 @@ for epoch = startEpoch, opt.nEpochs do
     if not opt.testOnly then
         trainer:train(epoch, trainLoader)
     end
-    local keys, vals = trainer:val(epoch, valLoader)
+    local vals = trainer:val(valLoader)
     assert(#vals == #bestVals, 'Size is not match')
     
     local findNewBest = false

@@ -1,0 +1,9 @@
+*.t7
+*.jpg
+*.png
+*.pkl
+vis/*
+exps/*
+.ipynb_checkpoints/*
+run.sh
+script/.ipynb_checkpoints/*

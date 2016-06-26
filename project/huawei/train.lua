@@ -54,9 +54,8 @@ function Trainer:train(epoch, dataloader)
     for n, sample in dataloader:nextBatch() do
         local dataTime = timer:time().real
         timer:reset()
-
+        
         self:copyInputs(sample)
-
         local output = self.model:forward(self.input):float()
         local loss = self.criterion:forward(self.model.output, self.target)
 
@@ -107,7 +106,7 @@ function Trainer:train(epoch, dataloader)
     print(info)
 end
 
-function Trainer:val(epoch, dataloader)
+function Trainer:val(dataloader)
     local size = dataloader:size()
     local nCrops = self.opt.tenCrop and 10 or 1
     local hitAllSum, hitOneSum, lossSum, top1Sum, top3Sum = 0.0, 0.0, 0.0, 0.0, 0.0
@@ -119,7 +118,7 @@ function Trainer:val(epoch, dataloader)
     cost_time = {}
     for n, sample in dataloader:nextBatch() do
         local input, target
-        if self.opt.loadType == 'cudnn' then
+        if self.opt.device == 'gpu' then
             self:copyInputs(sample)
             input = self.input
             target = self.target -- GPU automatically convert to float
@@ -167,9 +166,9 @@ function Trainer:val(epoch, dataloader)
     end
     print(info)
     
-    keys = {'hitAll', 'hitOne', 'top1', 'top3', 'loss'}
+    --keys = {'hitAll', 'hitOne', 'top1', 'top3', 'loss'}
     vals = {valHitAll, valHitOne, valTop1, valTop3, valLoss}
-    return keys, vals
+    return vals
 end
 
 function Trainer:computeScore(output, target, nCrops)

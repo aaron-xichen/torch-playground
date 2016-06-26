@@ -3,7 +3,8 @@ require 'loadcaffe'
 local function createModel(opt)
     local netPath = opt.modelRoot .. '/deploy.prototxt'
     local modelPath = opt.modelRoot .. '/weights.caffemodel'
-    local loadType = opt.loadType
+    local loadType = opt.device == 'gpu' and 'cudnn' or opt.device == 'cpu' and 'nn' or nil
+    assert(loadType, 'Neither gpu nor cpu')
     local nClasses = opt.nClasses
     
     model = loadcaffe.load(netPath, modelPath, loadType)
@@ -18,7 +19,7 @@ local function createModel(opt)
     lastFc.weight:normal(0, math.sqrt(4 / n))
     lastFc.weight:zero()
 
-    if opt.loadType == 'cudnn' then model:cuda() end
+    if opt.device == 'gpu' then model:cuda() end
 
     if opt.cudnn == 'deterministic' then
         model:apply(function(m)

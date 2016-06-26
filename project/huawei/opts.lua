@@ -6,7 +6,7 @@ function M.option(cmd)
     cmd:option('-lossWeights',        'none',       'Loss weights')
     cmd:option('-threadshold',         0.5,       'Threadshold')
     cmd:option('-modelRoot', 'none', 'Model root, must contains deploy.prototxt and weights.caffemodel')
-    cmd:option('-loadType',     'cudnn',              'Options: nn | cudnn')
+    --cmd:option('-loadType',     'cudnn',              'Options: nn | cudnn')
     cmd:option('-trainListPath', '/home/chenxi/dataset/huawei_scene_labeling/train.labels', 'Train list path')
     cmd:option('-valListPath', '/home/chenxi/dataset/huawei_scene_labeling/val.labels', 'Val list path')
     cmd:option('-imgRoot', '/home/chenxi/dataset/huawei_scene_labeling/resized256/', 'Image root path')
@@ -39,12 +39,14 @@ function M.parse(opt)
         print("Running on CPU")
     end
 
-    if opt.testOnly then 
-        print("Test Only Mode")
-    else 
+    if not opt.testOnly then
         print(("Finetuning from %s with LR: %.3f and lrRatio: %.6f"):format(paths.basename(opt.modelRoot), opt.LR, opt.lrRatio))
     end
-        
+    
+    if opt.dataset == 'none' then
+        cmd:error('Dataset required')
+    end
+    
     return opt
 end
 

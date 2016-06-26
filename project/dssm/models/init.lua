@@ -14,7 +14,7 @@ function M.setup(opt)
         print('=> Creating model from file ' .. modelPath .. '.lua')
         model = require(modelPath)(opt)
     end
-
+    
     if torch.type(model) == 'nn.DataParallelTable' then
         model = model:get(1)
     end
@@ -44,19 +44,12 @@ function M.setup(opt)
 
         model = dpt:cuda()
     end
-
-    -- multi-label loss
-    local criterion
-    if opt.lossWeights ~= 'none' then
-        assert(opt.lossWeights:nElement() == opt.nClasses, 
-            ('nClasses not match %d vs %d'):format(opt.lossWeights:nElement(), opt.nClasses))
-    else
-        opt.lossWeights = torch.Tensor(opt.nClasses):fill(1)
-    end
-    local criterion = nn.BCECriterion(opt.lossWeights)
     
-    if opt.device == 'gpu' then criterion:cuda() end
-
+    local criterion = nn.CrossEntropyCriterion()
+    if opt.device == 'gpu' then
+        criterion:cuda()
+    end
+    
     return model, criterion, optimState, epoch
 end
 

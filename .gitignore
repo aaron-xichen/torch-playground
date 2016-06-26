@@ -1,6 +1,8 @@
 *.t7
 *.jpg
 *.csv
+*.eps
+*.png
 .ipynb_checkpoints/*
 project/*/exps*
 project/*/vis/*
