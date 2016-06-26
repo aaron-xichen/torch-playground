@@ -1,0 +1,7 @@
+*.t7
+*.jpg
+*.csv
+.ipynb_checkpoints/*
+project/*/exps*
+project/*/vis/*
+project/*/script/.ipynb_checkpoints/*
