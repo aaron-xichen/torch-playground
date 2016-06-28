@@ -8,7 +8,7 @@ function M.option(cmd)
     return cmd
 end
 
-function M.parse(opt)
+function M.parse(cmd, opt)
     return opt
 end
 

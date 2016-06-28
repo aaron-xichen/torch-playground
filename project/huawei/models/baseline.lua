@@ -28,7 +28,6 @@ local function createModel(opt)
     end
 
     model:get(1).gradInput = nil
-    print('Scene Labeling Training')
     print(model)
     return model
 end

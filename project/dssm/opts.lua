@@ -19,7 +19,7 @@ function M.option(cmd)
     return cmd
 end
 
-function M.parse(opt)
+function M.parse(cmd, opt)
     opt.memory = opt.memory ~= 'false'
     opt.multiThread = opt.multiThread ~= 'false'      
     return opt

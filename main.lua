@@ -18,7 +18,7 @@ local projectOpts = require('project/' .. projectName .. '/opts')
 local cmd = shareOpts.option()
 cmd = projectOpts.option(cmd)
 local opt = shareOpts.parse(cmd, arg)
-opt = projectOpts.parse(opt)
+opt = projectOpts.parse(cmd, opt)
 
 -- set seed
 torch.manualSeed(opt.manualSeed)

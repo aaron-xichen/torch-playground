@@ -15,7 +15,7 @@ function M.option(cmd)
     return cmd
 end
 
-function M.parse(opt)
+function M.parse(cmd, opt)
     opt.lossWeights = torch.Tensor{2187, 1727, 152, 679, 167, 17, 112, 60, 633, 397, 61, 455, 69, 8}
     opt.lossWeights = opt.lossWeights / torch.sum(opt.lossWeights) * opt.lossWeights:nElement()
 

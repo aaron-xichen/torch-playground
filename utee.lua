@@ -45,4 +45,25 @@ function M.convertToString(keys, vals)
 end
 
 
+function M.quantization(x, nInt, nFrac)
+    local M = 2 ^ (nInt + nFrac) - 1
+    local delta = 2 ^ -nFrac
+    local sign = torch.sign(x)
+    local floor = torch.floor(torch.abs(x) / delta + 0.5)
+    local min = torch.cmin(floor, (M - 1) / 2.0)
+    local raw = torch.mul(torch.cmul(min, sign), delta)
+    return raw
+end
+
+function M.overflowRate(x, nInt, nFrac)
+    local M = 2 ^ (nInt + nFrac) - 1
+    local delta = 2 ^ -nFrac
+    local sign = torch.sign(x)
+    local floor = torch.floor(torch.abs(x) / delta + 0.5)
+    
+    local mask = torch.gt(floor, (M - 1) / 2.0)
+    local total = torch.sum(mask)
+    return total / x:nElement()
+end
+
 return M
