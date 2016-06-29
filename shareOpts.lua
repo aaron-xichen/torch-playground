@@ -29,6 +29,7 @@ function M.option()
     cmd:option('-experimentsName',  'none',  'The name of this experiment')
     ------------- Data options ------------------------
     cmd:option('-data',              '/home/chenxi/dataset/imagenet/',   'imagenet data path')
+    cmd:option('-externalMeanFile',  '/home/chenxi/dataset/imagenet/ilsvrc_2012_mean.t7', 'Externel mean file')
     cmd:option('-dataset',            'none',       'Dataset want to load')
     cmd:option('-nThreads',        4, 'number of data loading threads')
     ------------- Training options --------------------

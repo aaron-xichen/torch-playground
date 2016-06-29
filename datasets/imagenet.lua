@@ -12,6 +12,16 @@ function ImagenetDataset:__init(imageInfo, opt, split)
     self.split = split
     self.dir = paths.concat(opt.data, split)
     self.perm = torch.LongTensor{3, 2, 1}
+    if self.opt.externalMeanFile then
+        print("loading from externel mean file " .. self.opt.externalMeanFile)
+        self.meanstd = torch.load(self.opt.externalMeanFile)
+    else
+        print("Using internal mean file")
+        self.meanstd = {
+            mean = {103.939, 116.779, 123.68},
+            std = {1, 1, 1}
+        }
+    end
     assert(paths.dirp(self.dir), 'directory does not exist: ' .. self.dir)
 end
 
@@ -30,7 +40,7 @@ end
 function ImagenetDataset:_loadImage(path)
     local ok, input = pcall(function()
             -- convert RGB to BGR
-            return image.load(path, 3, 'float'):index(1, self.perm):mul(256.0)
+            return image.load(path, 3, 'float'):index(1, self.perm):mul(255.0)
         end)
 
     -- Sometimes image.load fails because the file extension does not match the
@@ -56,15 +66,11 @@ end
 
 -- Computed from random subset of ImageNet training images
 --[[local meanstd = {
-    mean = { 0.485, 0.456, 0.406 },
-    std = { 0.229, 0.224, 0.225 },
+mean = { 0.485, 0.456, 0.406 },
+std = { 0.229, 0.224, 0.225 },
 }]]--
 
--- BGR
-local meanstd = {
-mean = {103.939, 116.779, 123.68},
-std = {1, 1, 1}
-}
+
 local pca = {
     eigval = torch.Tensor{ 0.2175, 0.0188, 0.0045 },
     eigvec = torch.Tensor{
@@ -76,24 +82,46 @@ local pca = {
 
 function ImagenetDataset:preprocess()
     if self.split == 'train' then
-        return t.Compose{
-            t.RandomSizedCrop(224),
-            t.ColorJitter({
-                    brightness = 0.4,
-                    contrast = 0.4,
-                    saturation = 0.4,
-                }),
-            t.Lighting(0.1, pca.eigval, pca.eigvec),
-            t.ColorNormalize(meanstd),
-            t.HorizontalFlip(0.5),
-        }
+        if self.opt.externalMeanFile then
+            return t.Compose{
+                t.RandomSizedCrop(224),
+                t.ColorJitter({
+                        brightness = 0.4,
+                        contrast = 0.4,
+                        saturation = 0.4,
+                    }),
+                t.Lighting(0.1, pca.eigval, pca.eigvec),
+                t.SubstractMean(self.meanstd),
+                t.HorizontalFlip(0.5),
+            }
+        else
+            return t.Compose{
+                t.RandomSizedCrop(224),
+                t.ColorJitter({
+                        brightness = 0.4,
+                        contrast = 0.4,
+                        saturation = 0.4,
+                    }),
+                t.Lighting(0.1, pca.eigval, pca.eigvec),
+                t.ColorNormalize(self.meanstd),
+                t.HorizontalFlip(0.5),
+            }
+        end
     elseif self.split == 'val' then
         local Crop = self.opt.tenCrop and t.TenCrop or t.CenterCrop
-        return t.Compose{
-            t.Scale(256),
-            t.ColorNormalize(meanstd),
-            Crop(224),
-        }
+        if self.opt.externalMeanFile then
+            return t.Compose{
+                t.Scale(256),
+                t.SubstractMean(self.meanstd),
+                Crop(224),
+            }
+        else
+            return t.Compose{
+                t.Scale(256),
+                t.ColorNormalize(self.meanstd),
+                Crop(224),
+            }
+        end
     else
         error('invalid split: ' .. self.split)
     end
