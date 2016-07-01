@@ -25,22 +25,16 @@ local function createModel(opt)
     end
 
     model:get(1).gradInput = nil
-    print(model)
     
-    if opt.weightNBits ~= -1 then
-        -- fix point weights and bias
-        print('Cutting-off weights and bias')    
-        for i=1, #model do 
-            if model:get(i).weight then
-                model:get(i).weight:copy(utee.quantization(model:get(i).weight, 1, opt.weightNBits - 1))
-            end
-            if model:get(i).bias then
-                model:get(i).bias:copy(utee.quantization(model:get(i).bias, 1, opt.weightNBits - 1))
-            end
+    for i=1, #model do
+        if model:get(i).bias then
+            model:get(i).bias:copy(model:get(i).bias / opt.actScale)
+        end
+        if model:get(i).inplace then
+            model:get(i).inplcae = false
         end
     end
-    
-    
+    print(model)
     return model
 end
 

@@ -27,19 +27,7 @@ function M.convertToString(keys, vals)
         k = keys[i]
         v = vals[i]
         assert(type(v) == 'number', 'Unknown Type')
-        str = str .. (k .. ': %3.3f, '):format(v)
-        --[[
-        if type(v) == 'number' then
-            str = str .. (k .. ': %3.3f '):format(v)
-        elseif torch.typename(v) == 'torch.FloatTensor' then
-            str = str .. k .. ':'
-            for i = 1, v:nElement() do
-                str = str .. (' %3.3f'):format(v[i])
-            end
-            str = str .. ' '
-        else
-            assert(nil, 'Unknown type')
-        end]]--
+        str = str .. ', ' .. (k .. ': %3.3f'):format(v)
     end
     return str
 end
@@ -55,15 +43,55 @@ function M.quantization(x, nInt, nFrac)
     return raw
 end
 
+function M.maxShiftNBitsTable(xTable)
+    local maxVal = - math.huge
+    for _, v in pairs(xTable) do
+        maxVal = torch.max(torch.abs(v)) > maxVal and torch.max(torch.abs(v)) or maxVal
+    end
+    local shiftNBits = torch.ceil(torch.log(maxVal) / torch.log(2))
+    
+    -- shift value in place
+    for _, v in pairs(xTable) do
+        v:mul(2 ^ -shiftNBits)
+    end
+    return shiftNBits
+end
+
+function M.overflowRateTable(xTable, nInt, nFrac)
+    local M = 2 ^ (nInt + nFrac) - 1
+    local delta = 2 ^ -nFrac
+
+    local nCounts, nElements = 0.0, 0.0
+    for _, v in pairs(xTable) do
+        local floor = torch.floor(torch.abs(v) / delta + 0.5)
+        local mask = torch.gt(floor, (M - 1) / 2.0)
+        nCounts = nCounts + torch.sum(mask)
+        nElements = nElements + v:nElement()
+    end
+    return nCounts / nElements
+end
+
 function M.overflowRate(x, nInt, nFrac)
     local M = 2 ^ (nInt + nFrac) - 1
     local delta = 2 ^ -nFrac
-    local sign = torch.sign(x)
     local floor = torch.floor(torch.abs(x) / delta + 0.5)
-    
+
     local mask = torch.gt(floor, (M - 1) / 2.0)
     local total = torch.sum(mask)
     return total / x:nElement()
 end
 
+function M.copyTo(source, target)
+    assert(#source == #target, 'Size does not match')
+    for i=1, #source do
+        if target:get(i).weight then
+            target:get(i).weight:copy(source:get(i).weight)
+        end
+        if target:get(i).bias then
+            target:get(i).bias:copy(source:get(i).bias)
+        end
+    end
+end
+
 return M
+

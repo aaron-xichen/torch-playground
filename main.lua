@@ -28,13 +28,12 @@ cutorch.manualSeedAll(opt.manualSeed)
 local DataLoader = require('project/' .. opt.project .. '/' .. opt.dataloader)
 local trainLoader, valLoader = DataLoader.create(opt)
 
-
 -- Creating model
 local models = require('project/' .. opt.project .. '/models/init')
 local model, criterion, optimState, epoch = models.setup(opt)
 
 local Trainer = require('project/' .. opt.project .. '/train')
-local trainer = Trainer(model, criterion, optimState, opt)
+local trainer = Trainer(model, criterion, optimState, opt, trainLoader, valLoader)
 
 -- get monitor keys and init val
 local bestKeys, bestVals = trainer:getBestStat()
@@ -43,9 +42,9 @@ local higherIsBetter = 2 * torch.lt(torch.Tensor(bestVals), 0):float() - 1
 local startEpoch = epoch or 1
 for epoch = startEpoch, opt.nEpochs do
     if not opt.testOnly then
-        trainer:train(epoch, trainLoader)
+        trainer:train(epoch)
     end
-    local vals = trainer:val(valLoader)
+    local vals = trainer:val()
     assert(#vals == #bestVals, 'Size is not match')
     
     local findNewBest = false
