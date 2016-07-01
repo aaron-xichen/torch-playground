@@ -45,6 +45,7 @@ function Trainer:paramQuantization()
     if self.opt.convNBits ~= -1 and self.opt.fcNBits ~= -1 then
         -- fix point weights and bias
         print('=> Quantizing weights and bias') 
+        self.paramShiftNBits = {}
         for i=1, #self.model do
             local weight = self.model:get(i).weight
             local bias = self.model:get(i).bias
@@ -59,44 +60,28 @@ function Trainer:paramQuantization()
                     assert(nil, "Unknow layer type " .. layerName)
                 end
 
-                local weightNInt, biasNInt = paramNBits, paramNBits
-                local weightOfr, biasOfr
-                local weightShiftBits = torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
-                local biasShiftBits = torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
-                print(weight:min(), weight:max(), weightShiftBits)
-                print(bias:min(), bias:max(), biasShiftBits)
+                self.paramShiftNBits[i] = {}
+                self.paramShiftNBits[i][1] = torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
+                self.paramShiftNBits[i][2] = torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
 
-                local weightShiftLeft = weight * 2 ^ -weightShiftBits
-                for j=1,paramNBits do
-                    weightOfr = utee.overflowRate(weightShiftLeft, j, paramNBits - j)
-                    if weightOfr <= self.opt.overFlowRate then 
-                        weightNInt = j
-                        break 
-                    end
-                end
-                local weightQuantization = utee.quantization(weightShiftLeft, weightNInt, paramNBits - weightNInt)
-                local weightShiftRight = weightQuantization * 2 ^ weightShiftBits
-                print('sample: ', weight:view(-1)[1], weightShiftRight:view(-1)[1])
-                self.shadow:get(i).weight:copy(weightShiftRight)
+                print(weight:min(), weight:max(), self.paramShiftNBits[i][1])
+                print(bias:min(), bias:max(), self.paramShiftNBits[i][2])
 
+                local weightShiftTo = weight * 2 ^ -self.paramShiftNBits[i][1]
+                local weightQuantization = utee.quantization(weightShiftTo, 1, paramNBits - 1)
+                local weightShiftBack = weightQuantization * 2 ^ self.paramShiftNBits[i][1]
+                print('sample: ', weight:view(-1)[1], weightShiftBack:view(-1)[1])
+                self.shadow:get(i).weight:copy(weightShiftBack)
 
-                local biasShiftLeft = bias * 2 ^ -biasShiftBits
-                for j=1,paramNBits do
-                    biasOfr = utee.overflowRate(biasShiftLeft, j, paramNBits - j)
-                    if biasOfr <= self.opt.overFlowRate then 
-                        biasNInt = j
-                        break 
-                    end
-                end
-                local biasQuantization = utee.quantization(biasShiftLeft, biasNInt, paramNBits - biasNInt)
-                local biasShiftRight = biasQuantization * 2 ^ biasShiftBits
-                print('sample: ', bias:view(-1)[1], biasShiftRight:view(-1)[1])
-                self.shadow:get(i).bias:copy(biasShiftRight)
-
-                print(("%s, weight: %d.%d, bias: %d.%d")
-                    :format(layerName, weightNInt, paramNBits - weightNInt, biasNInt, paramNBits - biasNInt))
+                local biasShiftTo = bias * 2 ^ -self.paramShiftNBits[i][2]
+                local biasQuantization = utee.quantization(biasShiftTo, 1, paramNBits - 1)
+                local biasShiftBack = biasQuantization * 2 ^ self.paramShiftNBits[i][2]
+                print('sample: ', bias:view(-1)[1], biasShiftBack:view(-1)[1])
+                self.shadow:get(i).bias:copy(biasShiftBack)
             end
         end
+        print(("=> Quantization Info, ConvParam: %d bits, FcParam: %d bits, Activation: %d bits")
+            :format(self.opt.convNBits, self.opt.fcNBits, self.opt.actNBits))
     end
 end
 
@@ -124,26 +109,12 @@ function Trainer:actAnalysis()
             end
         end
 
-        -- allocation
-        print('=> Allocating bit length')
-        self.allocationTable = {}
-        self.shiftNBits = {}
+        print('=> Computing number of shifting bits')
+        self.actShiftNBits = {}
         for k, v in pairs(cache) do
-            self.shiftNBits[k] = utee.maxShiftNBitsTable(v)
-            
-            self.allocationTable[k] = self.opt.actNBits
-            local ofr
-            for j=1, self.opt.actNBits do
-                ofr = utee.overflowRateTable(v, j, self.opt.actNBits - j)
-                if ofr <= self.opt.overFlowRate then
-                    self.allocationTable[k] = j
-                    break
-                end
-            end
-            local layerName = torch.typename(self.shadow:get(k))
-            print(("%s, %d.%d, ofr: %.6f")
-                :format(layerName, self.allocationTable[k], self.opt.actNBits - self.allocationTable[k], ofr))
+            self.actShiftNBits[k] = utee.maxShiftNBitsTable(v)
         end
+        print('=> Analyzing done!')
     end
 end
 
@@ -154,14 +125,14 @@ function Trainer:quantizationForward()
         else
             self.shadow:get(i):forward(self.shadow:get(i-1).output)
         end
-        if self.allocationTable[i] then
-            local shiftToVal = 2^-self.shiftNBits[i] * self.shadow:get(i).output
+        if self.actShiftNBits[i] then
+            local shiftToVal = 2^-self.actShiftNBits[i] * self.shadow:get(i).output
             local quantizationVal = utee.quantization(
-                    shiftToVal, 
-                    self.allocationTable[i],
-                    self.opt.actNBits - self.allocationTable[i]
-                )
-            local shiftBackVal = 2^self.shiftNBits[i] * quantizationVal
+                shiftToVal, 
+                1,
+                self.opt.actNBits - 1
+            )
+            local shiftBackVal = 2^self.actShiftNBits[i] * quantizationVal
             self.shadow:get(i).output:copy(shiftBackVal)
         end
     end
@@ -179,7 +150,7 @@ function Trainer:manualForward()
             local meanVal = torch.mean(self.shadow:get(i).output)
             local minVal = self.shadow:get(i).output:min()
             local maxVal = self.shadow:get(i).output:max()
-            print(layerName, meanVal, minVal, maxVal)
+            --print(layerName, meanVal, minVal, maxVal)
         end
     end
 end
@@ -229,10 +200,10 @@ function Trainer:val()
 
     self.shadow:evaluate()
     self.valDataLoader:reset()
-    
+
     -- init
     self:paramQuantization()
-    if not self.allocationTable then
+    if not self.actShiftNBits then
         self:actAnalysis()
     end
 

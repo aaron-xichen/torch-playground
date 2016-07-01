@@ -26,10 +26,8 @@ local function createModel(opt)
 
     model:get(1).gradInput = nil
     
+    -- remove inplace
     for i=1, #model do
-        if model:get(i).bias then
-            model:get(i).bias:copy(model:get(i).bias / opt.actScale)
-        end
         if model:get(i).inplace then
             model:get(i).inplcae = false
         end

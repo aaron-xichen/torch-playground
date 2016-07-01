@@ -6,8 +6,6 @@ function M.option(cmd)
     cmd:option('-convNBits',    -1,        'Number of bits for convolution parameters (including sign)')
     cmd:option('-fcNBits',      -1,        'Number of bits for fc parameters (including sign)')
     cmd:option('-actNBits',        -1,       'Number of bits for activation (including sign)')
-    cmd:option('-overFlowRate',    1 * 0.01, 'Overflow rate threshold')
-    cmd:option('-actScale',        1,      'Scale the activation down')
     cmd:text()
     return cmd
 end
