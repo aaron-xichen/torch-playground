@@ -18,7 +18,8 @@ function ImagenetDataset:__init(imageInfo, opt, split)
     else
         print("Using internal mean file")
         self.meanstd = {
-            mean = {103.939, 116.779, 123.68},
+            --mean = {103.939, 116.779, 123.68},
+            mean = {104, 117, 124},
             std = {1, 1, 1}
         }
     end
@@ -40,12 +41,14 @@ end
 function ImagenetDataset:_loadImage(path)
     local ok, input = pcall(function()
             -- convert RGB to BGR
-            return image.load(path, 3, 'float'):index(1, self.perm):mul(255.0)
+            local val = image.load(path, 3, 'float'):index(1, self.perm):mul(255.0)
+            return val
         end)
 
     -- Sometimes image.load fails because the file extension does not match the
     -- image format. In that case, use image.decompress on a ByteTensor.
     if not ok then
+        print('!!!!!')
         local f = io.open(path, 'r')
         assert(f, 'Error reading: ' .. tostring(path))
         local data = f:read('*a')
@@ -118,7 +121,7 @@ function ImagenetDataset:preprocess()
         else
             return t.Compose{
                 t.Scale(256),
-                t.ColorNormalize(self.meanstd),
+                --t.ColorNormalize(self.meanstd),
                 Crop(224),
             }
         end
