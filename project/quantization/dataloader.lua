@@ -40,8 +40,8 @@ end
 function DataLoader:run()
     local threads = self.threads
     local size, batchSize = self.__size, self.batchSize
+    torch.manualSeed(11)
     local perm = torch.randperm(size)
-
     local idx, sample = 1, nil
     local function enqueue()
         while idx <= size and threads:acceptsjob() do
@@ -64,7 +64,7 @@ function DataLoader:run()
                     end
                     collectgarbage()
                     return {
-                        input = batch:view(sz * nCrops, table.unpack(imageSize)),
+                        input = batch:view(sz * nCrops, table.unpack(imageSize)):int():float(),
                         target = target,
                     }
                 end,

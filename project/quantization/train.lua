@@ -2,7 +2,7 @@ local optim = require 'optim'
 local utee = require 'utee'
 
 local M = {}
-local Trainer = torch.class('template.Trainer', M)
+local Trainer = torch.class('quantization.Trainer', M)
 
 function Trainer:getBestStat()
     keys = {'bestTop1Err', 'bestTop5Err'}
@@ -12,47 +12,42 @@ end
 
 function Trainer:__init(model, criterion, optimState, opt, trainDataLoader, valDataLoader)
     self.model = model
-    self.shadow = self.model:clone()
 
+    --[[
     self.criterion = criterion
     self.optimState = optimState or {
-        learningRate = opt.LR,
-        learningRateDecay = 0.0,
-        momentum = opt.momentum,
-        nesterov = true,
-        dampening = 0.0,
-        weightDecay = opt.weightDecay,
-    }
-    self.opt = opt
+    learningRate = opt.LR,
+    learningRateDecay = 0.0,
+    momentum = opt.momentum,
+    nesterov = true,
+    dampening = 0.0,
+    weightDecay = opt.weightDecay,
+}
     self.params, self.gradParams = self.shadow:getParameters()
+    --]]
+
+    self.opt = opt
+
     self.trainDataLoader = trainDataLoader
     self.valDataLoader = valDataLoader
 
-    self.relatedLayers = {}
-    self.relatedLayers['cudnn.SpatialConvolution'] = true
-    self.relatedLayers['nn.SpatialConvolution'] = true
-    --self.relatedLayers['cudnn.SpatialCrossMapLRN'] = true
-    --self.relatedLayers['nn.SpatialCrossMapLRN'] = true
-    self.relatedLayers['nn.Linear'] = true
-    --self.relatedLayers['nn.ReLU'] = true
-    --self.relatedLayers['cudnn.ReLU'] = true
-    self.relatedLayers['cudnn.SoftMax'] = true
-    self.relatedLayers['nn.SoftMax'] = true
     self.collectNSamples = 10
 end
 
 function Trainer:paramQuantization()
     if self.opt.convNBits ~= -1 and self.opt.fcNBits ~= -1 then
-        -- fix point weights and bias
         print('=> Quantizing weights and bias') 
         self.paramShiftNBits = {}
+        local traceParam = {}
         for i=1, #self.model do
-            local weight = self.model:get(i).weight
-            local bias = self.model:get(i).bias
-            if weight and bias then
+            if self.model:get(i).weight then
+                local weight = self.model:get(i).weight
+                local bias = self.model:get(i).bias
                 local layerName = torch.typename(self.model:get(i))
                 local paramNBits
-                if layerName == 'cudnn.SpatialConvolution' or layerName == 'nn.SpatialConvolution' then
+                if layerName == 'cudnn.SpatialConvolution' 
+                    or layerName == 'nn.SpatialConvolution' 
+                    or layerName == 'nn.SpatialConvolutionFixedPoint' then
                     paramNBits = self.opt.convNBits
                 elseif layerName == 'nn.Linear' then
                     paramNBits = self.opt.fcNBits
@@ -61,100 +56,199 @@ function Trainer:paramQuantization()
                 end
 
                 self.paramShiftNBits[i] = {}
-                self.paramShiftNBits[i][1] = torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
-                self.paramShiftNBits[i][2] = torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
+                self.paramShiftNBits[i][1] = -torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
+                self.paramShiftNBits[i][2] = -torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
 
-                print(weight:min(), weight:max(), self.paramShiftNBits[i][1])
-                print(bias:min(), bias:max(), self.paramShiftNBits[i][2])
-
-                local weightShiftTo = weight * 2 ^ -self.paramShiftNBits[i][1]
+                local weightShiftTo = weight * 2 ^ self.paramShiftNBits[i][1]
                 local weightQuantization = utee.quantization(weightShiftTo, 1, paramNBits - 1)
-                local weightShiftBack = weightQuantization * 2 ^ self.paramShiftNBits[i][1]
-                print('sample: ', weight:view(-1)[1], weightShiftBack:view(-1)[1])
-                self.shadow:get(i).weight:copy(weightShiftBack)
+                local weightShiftBack = weightQuantization * 2 ^ -self.paramShiftNBits[i][1]
+                self.model:get(i).weight:copy(weightShiftBack)
 
-                local biasShiftTo = bias * 2 ^ -self.paramShiftNBits[i][2]
+                local biasShiftTo = bias * 2 ^ self.paramShiftNBits[i][2]
                 local biasQuantization = utee.quantization(biasShiftTo, 1, paramNBits - 1)
-                local biasShiftBack = biasQuantization * 2 ^ self.paramShiftNBits[i][2]
-                print('sample: ', bias:view(-1)[1], biasShiftBack:view(-1)[1])
-                self.shadow:get(i).bias:copy(biasShiftBack)
+                local biasShiftBack = biasQuantization * 2 ^ -self.paramShiftNBits[i][2]
+                self.model:get(i).bias:copy(biasShiftBack)
+
+                print(layerName)
+                print('weight: ', self.paramShiftNBits[i][1], 'bias: ', self.paramShiftNBits[i][2])
+
+                table.insert(traceParam, self.model:get(i).weight:float())
+                table.insert(traceParam, self.model:get(i).bias:float())
+
             end
         end
+
+        --torch.save('cpuParam.t7', traceParam)
         print(("=> Quantization Info, ConvParam: %d bits, FcParam: %d bits, Activation: %d bits")
             :format(self.opt.convNBits, self.opt.fcNBits, self.opt.actNBits))
+    end
+end
+
+function Trainer:castTensorType()
+    for i=1, #self.model do
+        if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
+            self.model:get(i):type('torch.DoubleTensor')
+        end
+        if self.model:get(i).weight then
+            print(torch.typename(self.model:get(i).weight))
+        end
     end
 end
 
 function Trainer:actAnalysis()
     if self.opt.actNBits ~= -1 then
         print("=> Analyzing activation distribution")
+        --[[
         local cache = {}
 
         print(('=> Sampling %d data points'):format(self.collectNSamples))
         for n, sample in self.valDataLoader:run() do
-            self:copyInputs(sample)
-            self.shadow:forward(self.input)
-            for i=1, #self.shadow do
-                local layerName = torch.typename(self.shadow:get(i))
-                if self.relatedLayers[layerName] then
-                    if not cache[i] then
-                        cache[i] = {}
-                    end
-                    table.insert(cache[i], self.shadow:get(i).output)
-                end
-            end
-            if n >= self.collectNSamples then
-                self.valDataLoader:reset()
-                break
-            end
-        end
+        self:copyInputs(sample)
+        self.model:forward(self.input)
+        for i=1, #self.model do
+        local layerName = torch.typename(self.model:get(i))
+        if self.relatedLayers[layerName] then
+        if not cache[i] then
+        cache[i] = {}
+    end
+        table.insert(cache[i], self.model:get(i).output)
+    end
+    end
+        if n >= self.collectNSamples then
+        self.valDataLoader:reset()
+        break
+    end
+    end
 
         print('=> Computing number of shifting bits')
         self.actShiftNBits = {}
         for k, v in pairs(cache) do
-            self.actShiftNBits[k] = utee.maxShiftNBitsTable(v)
-        end
+        self.actShiftNBits[k] = utee.maxShiftNBitsTable(v)
+        print(k, torch.typename(self.model:get(k)), self.actShiftNBits[k])
+    end]]--
+        self.actShiftNBits = {
+            [1] = -10,
+            [3] = -12,
+            [6] = -13,
+            [8] = -14,
+            [11] = -15,
+            [13] = -14,
+            [15] = -15,
+            [18] = -14,
+            [20] = -13,
+            [22] = -12,
+            [25] = -12,
+            [27] = -11,
+            [29] = -10,
+            [33] = -7,
+            [36] = -5,
+            [39] = -6
+        }
         print('=> Analyzing done!')
     end
 end
 
 function Trainer:quantizationForward()
-    for i=1, #self.shadow do
+    for i=1, #self.model do
         if i == 1 then
-            self.shadow:get(i):forward(self.input)
+            if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
+                self.model:get(i):forward(self.input:double())
+            else 
+                self.model:get(i):forward(self.input)
+            end
         else
-            self.shadow:get(i):forward(self.shadow:get(i-1).output)
+            self.model:get(i):forward(self.model:get(i-1).output)
         end
+
         if self.actShiftNBits[i] then
-            local shiftToVal = 2^-self.actShiftNBits[i] * self.shadow:get(i).output
+            --print(i)
+            local output = self.model:get(i).output
+            --local outputReal = output:float()
+            --print(outputReal:sum(), outputReal:min(), outputReal:max())
+            local shiftToVal = 2^self.actShiftNBits[i] * output
             local quantizationVal = utee.quantization(
                 shiftToVal, 
                 1,
                 self.opt.actNBits - 1
             )
-            local shiftBackVal = 2^self.actShiftNBits[i] * quantizationVal
-            self.shadow:get(i).output:copy(shiftBackVal)
+            local shiftBackVal = 2^-self.actShiftNBits[i] * quantizationVal
+
+            output:copy(shiftBackVal)
+
+            --outputReal = output:float()
+            --print(outputReal:sum(), outputReal:min(), outputReal:max())  
         end
+
     end
+    --[[
+    traceOutput = {}
+    traceParam = {}
+    table.insert(traceOutput, self.input:float())
+    for i = 1, #self.model do
+    if self.model:get(i).weight then
+    table.insert(traceParam, self.model:get(i).weight:float())
+end
+    if self.model:get(i).bias then
+    table.insert(traceParam, self.model:get(i).bias:float())
+end
+    table.insert(traceOutput, self.model:get(i).output:float())
+end
+    torch.save('traceOutput.t7', traceOutput)
+    torch.save('traceParam.t7', traceParam)
+    ]]--
 end
 
-function Trainer:manualForward()
-    for i=1, #self.shadow do
-        if i == 1 then
-            self.shadow:get(i):forward(self.input)
+
+
+function Trainer:val()
+    local size = self.valDataLoader:size()
+    local nCrops = self.opt.tenCrop and 10 or 1
+    local top1Sum, top5Sum = 0.0, 0.0
+    local N = 0
+
+    --self.valDataLoader:reset()
+
+    -- init
+    self:paramQuantization()
+    self:castTensorType()
+    if not self.actShiftNBits then
+        self:actAnalysis()
+    end
+
+    self.model:evaluate()
+    --cutorch.manualSeed(20)
+    
+   -- torch.manualSeed(100)
+    -- forward
+    for n, sample in self.valDataLoader:run() do
+        self:copyInputs(sample)
+        torch.save('input.t7', sample.input:float())
+        print('data: ', torch.sum(sample.input))
+        if self.opt.actNBits == -1 then
+            self:manualForward()
         else
-            self.shadow:get(i):forward(self.shadow:get(i-1).output)
+            self:quantizationForward()
         end
-        local layerName = torch.typename(self.shadow:get(i))
-        if self.relatedLayers[layerName] then
-            local meanVal = torch.mean(self.shadow:get(i).output)
-            local minVal = self.shadow:get(i).output:min()
-            local maxVal = self.shadow:get(i).output:max()
-            --print(layerName, meanVal, minVal, maxVal)
-        end
+
+        local top1, top5 = self:computeScore(self.model:get(#self.model).output, sample.target, nCrops)
+        top1Sum = top1Sum + top1
+        top5Sum = top5Sum + top5
+        N = N + 1
+        print((' | Val [%d/%d] Top1Err: %7.5f, Top5Err: %7.5f'):format(n, size, top1, top5))
+
+        --self.valDataLoader:reset()
+        --break
+        --if N >= 1 then break end
     end
+
+    print((' * Val Done, Top1Err: %7.3f  Top5Err: %7.3f'):format(top1Sum / N, top5Sum / N))
+    print(("=> Quantization Info, ConvParam: %d bits, FcParam: %d bits, Activation: %d bits")
+        :format(self.opt.convNBits, self.opt.fcNBits, self.opt.actNBits))
+    vals = {top1Sum / N, top5Sum / N}
+    return vals
 end
 
+------------ helper function ----------------
 function Trainer:train(epoch)
     local size = self.trainDataLoader:size()
     self.optimState.learningRate = self:learningRate(epoch)
@@ -192,81 +286,24 @@ function Trainer:train(epoch)
     assert(self.params:storage() == self.shadow:parameters()[1]:storage())
 end
 
-function Trainer:val()
-    local size = self.valDataLoader:size()
-    local nCrops = self.opt.tenCrop and 10 or 1
-    local top1Sum, top5Sum = 0.0, 0.0
-    local N = 0
-
-    self.shadow:evaluate()
-    self.valDataLoader:reset()
-
-    -- init
-    self:paramQuantization()
-    if not self.actShiftNBits then
-        self:actAnalysis()
-    end
-
-    -- forward
-    for n, sample in self.valDataLoader:run() do
-        self:copyInputs(sample)
-        if self.opt.actNBits == -1 then
-            self:manualForward()
-        else
-            self:quantizationForward()
-        end
-
-        local top1, top5 = self:computeScore(self.shadow:get(#self.shadow).output, sample.target, nCrops)
-        top1Sum = top1Sum + top1
-        top5Sum = top5Sum + top5
-        N = N + 1
-        print((' | Val [%d/%d] Top1Err: %7.5f, Top5Err: %7.5f'):format(n, size, top1, top5))
-        --if N >= 1 then break end
-    end
-
-    print((' * Val Done, Top1Err: %7.3f  Top5Err: %7.3f'):format(top1Sum / N, top5Sum / N))
-    print(("=> Quantization Info, ConvParam: %d bits, FcParam: %d bits, Activation: %d bits")
-        :format(self.opt.convNBits, self.opt.fcNBits, self.opt.actNBits))
-    vals = {top1Sum / N, top5Sum / N}
-    return vals
-end
-
 function Trainer:computeScore(output, target, nCrops)
     if nCrops > 1 then
-        -- Sum over crops
-        output = output:view(output:size(1) / nCrops, nCrops, output:size(2))
-        --:exp()
-        :sum(2):squeeze(2)
+        output = output:view(output:size(1) / nCrops, nCrops, output:size(2)):sum(2):squeeze(2)
     end
 
-    -- Coputes the top1 and top5 error rate
     local batchSize = output:size(1)
-
     local _ , predictions = output:float():sort(2, true) -- descending
-
-    -- Find which predictions match the target
-    local correct = predictions:eq(
-        target:long():view(batchSize, 1):expandAs(output))
-
-    -- Top-1 score
+    local correct = predictions:eq(target:long():view(batchSize, 1):expandAs(output))
     local top1 = 1.0 - (correct:narrow(2, 1, 1):sum() / batchSize)
-
-    -- Top-5 score, if there are at least 5 classes
     local len = math.min(5, correct:size(2))
     local top5 = 1.0 - (correct:narrow(2, 1, len):sum() / batchSize)
-
     return top1 * 100, top5 * 100
 end
 
 function Trainer:copyInputs(sample)
     if self.opt.device == 'gpu' then
-        self.input = self.input or (self.opt.nGPU == 1
-            and torch.CudaTensor()
-            or cutorch.createCudaHostTensor())
-        self.target = self.target or torch.CudaTensor()
-
-        self.input:resize(sample.input:size()):copy(sample.input)
-        self.target:resize(sample.target:size()):copy(sample.target)
+        self.input = sample.input:cuda()
+        self.target = sample.target:cuda()
     else
         self.input = sample.input
         self.target = sample.target

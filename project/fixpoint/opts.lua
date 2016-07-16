@@ -1,7 +1,7 @@
 local M = { }
 
 function M.option(cmd)
-    cmd:text('Torch-7 Quantization Arguments Options:')
+    cmd:text('Torch-7 Fixed Point Arguments Options:')
     cmd:option('-modelRoot',       'none',    'Externel model folder')
     cmd:option('-shiftInfoPath',   'none',     'Shift bits info file path')
     cmd:text()

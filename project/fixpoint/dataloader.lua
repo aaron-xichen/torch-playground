@@ -53,7 +53,17 @@ function DataLoader:run()
                     local target = torch.IntTensor(sz)
                     for i, idx in ipairs(indices:totable()) do
                         local sample = _G.dataset:get(idx)
+                        local premin, _ = torch.min(sample.input:view(3, -1), 2)
+                        local premax, _ = torch.max(sample.input:view(3, -1), 2)
+                        local prerange = torch.max(premax - premin)
+                        assert(prerange <= 255, ('pre out of range %s'):format(prerange))
+                        
                         local input = _G.preprocess(sample.input)
+                        local postmin, _ = torch.min(input:view(3, -1), 2)
+                        local postmax, _ = torch.max(input:view(3, -1), 2)
+                        local postrange = torch.max(postmax - postmin)
+                        assert(postrange <= 255, ('post out of range %s'):format(postrange))
+                        
                         if not batch then
                             imageSize = input:size():totable()
                             if nCrops > 1 then table.remove(imageSize, 1) end

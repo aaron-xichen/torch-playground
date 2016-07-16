@@ -21,8 +21,8 @@ local opt = shareOpts.parse(cmd, arg)
 opt = projectOpts.parse(cmd, opt)
 
 -- set seed
-torch.manualSeed(opt.manualSeed)
-cutorch.manualSeedAll(opt.manualSeed)
+--torch.manualSeed(opt.manualSeed)
+--cutorch.manualSeedAll(opt.manualSeed)
 
 -- Loading data first, because we need to infer the nClasses from the dataset
 local DataLoader = require('project/' .. opt.project .. '/' .. opt.dataloader)

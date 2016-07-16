@@ -7,3 +7,6 @@
 project/*/exps*
 project/*/vis/*
 project/*/script/.ipynb_checkpoints/*
+*.tar
+*.gz
+*.bin

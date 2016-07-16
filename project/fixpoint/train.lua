@@ -63,7 +63,7 @@ function Trainer:fillParamInt32()
             decPosSave = - actShiftBits - 7
 
             -- fixed point bias and align
-            local bias1 = torch.round(utee.fixedPoint(2^biasShiftBits * bias, 1, 7) * 2^biasAlignShiftBits)
+            local bias1 = utee.fixedPoint(2^biasShiftBits * bias, 1, 7) * 2^biasAlignShiftBits
             self.shadow:get(i).bias:copy(bias1)
 
             -- save window shift bits
@@ -149,6 +149,8 @@ function Trainer:val()
     local timer = torch.Timer()
     for n, sample in self.valDataLoader:run() do
         print('data: ', torch.sum(sample.input:int():float()))
+        print(torch.max(sample.input:int()))
+        print(torch.min(sample.input:int()))
         timer:reset()
         self:copyInputs(sample)
         
@@ -160,8 +162,8 @@ function Trainer:val()
         N = N + 1
 
         print((' | Val [%d/%d] Top1Err: %7.5f, Top5Err: %7.5f, cost: %3.3fs'):format(n, size, top1, top5, timer:time().real))
-        self.valDataLoader:reset()
-        break
+        --self.valDataLoader:reset()
+        --break
     end
 
     print((' * Val Done, Top1Err: %7.3f  Top5Err: %7.3f, cost: %3.3fs'):format(top1Sum / N, top5Sum / N, totalTimer:time().real))

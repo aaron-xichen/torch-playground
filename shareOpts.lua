@@ -17,7 +17,7 @@ function M.option()
     cmd:text()
     cmd:text('General Arguments Options:')
     ------------ General options --------------------
-    cmd:option('-manualSeed', 2,          'Manually set RNG seed')
+    cmd:option('-manualSeed', 11,          'Manually set RNG seed')
     cmd:option('-nGPU',       1,          'Number of GPUs to use by default')
     cmd:option('-backend',    'cudnn',    'Options: cudnn | cunn')
     cmd:option('-cudnn',      'fastest',  'Options: fastest | default | deterministic')
@@ -75,6 +75,11 @@ function M.parse(cmd, arg)
     if opt.externalMeanFile == 'none' then
         opt.externalMeanFile = false
     end
+    
+    if opt.device ~= 'cpu' and opt.device ~= 'gpu' then
+        cmd:error(('Unknown device : %s'):foramt(opt.device))
+    end
+    
     return opt
 end
 

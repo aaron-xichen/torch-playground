@@ -19,7 +19,6 @@ function M.save(model, optimState, epoch, snapshotPath)
     torch.save(snapshotPath, snapshot)
 end
 
-
 function M.convertToString(keys, vals)
     assert(#keys == #vals, 'Size does not match')
     local str = ''
@@ -32,6 +31,14 @@ function M.convertToString(keys, vals)
     return str
 end
 
+function M.fixedPoint(x, nInt, nFrac)
+    local M = 2 ^ (nInt + nFrac) - 1
+    local sign = torch.sign(x)
+    local floor = torch.floor(torch.abs(x) * 2 ^ nFrac + 0.5)
+    local min = torch.cmin(floor, (M - 1) / 2.0)
+    local raw = torch.cmul(min, sign)
+    return raw 
+end
 
 function M.quantization(x, nInt, nFrac)
     local M = 2 ^ (nInt + nFrac) - 1
@@ -91,6 +98,23 @@ function M.copyTo(source, target)
             target:get(i).bias:copy(source:get(i).bias)
         end
     end
+end
+
+function M.substitute(source)
+    local layerName = torch.typename(source)
+    assert(layerName == 'nn.SpatialConvolution', ('Layer not support %s'):format(layerName))
+    local nInputPlane = source.nInputPlane
+    local nOutputPlane = source.nOutputPlane
+    local kW = source.kW
+    local kH = source.kH
+    local dW = source.dW
+    local dH = source.dH
+    local padW = source.padW
+    local padH = source.padH
+    target = nn.SpatialConvolutionFixedPoint(nInputPlane, nOutputPlane, kW, kH, dW, dH, padW, padH)
+    target.weight:copy(source.weight)
+    target.bias:copy(source.bias)
+    return target
 end
 
 return M
