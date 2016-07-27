@@ -55,11 +55,11 @@ function M.maxShiftNBitsTable(xTable)
     for _, v in pairs(xTable) do
         maxVal = torch.max(torch.abs(v)) > maxVal and torch.max(torch.abs(v)) or maxVal
     end
-    local shiftNBits = torch.ceil(torch.log(maxVal) / torch.log(2))
+    local shiftNBits = -torch.ceil(torch.log(maxVal) / torch.log(2))
     
     -- shift value in place
     for _, v in pairs(xTable) do
-        v:mul(2 ^ -shiftNBits)
+        v:mul(2 ^ shiftNBits)
     end
     return shiftNBits
 end

@@ -121,7 +121,7 @@ function ImagenetDataset:preprocess()
         else
             return t.Compose{
                 t.Scale(256),
-                --t.ColorNormalize(self.meanstd),
+                t.ColorNormalize(self.meanstd),
                 Crop(224),
             }
         end

@@ -98,52 +98,52 @@ end
 function Trainer:actAnalysis()
     if self.opt.actNBits ~= -1 then
         print("=> Analyzing activation distribution")
-        --[[
         local cache = {}
 
         print(('=> Sampling %d data points'):format(self.collectNSamples))
         for n, sample in self.valDataLoader:run() do
-        self:copyInputs(sample)
-        self.model:forward(self.input)
-        for i=1, #self.model do
-        local layerName = torch.typename(self.model:get(i))
-        if self.relatedLayers[layerName] then
-        if not cache[i] then
-        cache[i] = {}
-    end
-        table.insert(cache[i], self.model:get(i).output)
-    end
-    end
-        if n >= self.collectNSamples then
-        self.valDataLoader:reset()
-        break
-    end
-    end
+            self:copyInputs(sample)
+            self.model:forward(self.input)
+            for i=1, #self.model do
+                if self.model:get(i).weight and self.model:get(i).bias then
+                    if not cache[i] then
+                        cache[i] = {}
+                    end
+                    table.insert(cache[i], self.model:get(i).output)
+                end
+            end
+            if n >= self.collectNSamples then
+                self.valDataLoader:reset()
+                break
+            end
+        end
 
         print('=> Computing number of shifting bits')
         self.actShiftNBits = {}
         for k, v in pairs(cache) do
-        self.actShiftNBits[k] = utee.maxShiftNBitsTable(v)
-        print(k, torch.typename(self.model:get(k)), self.actShiftNBits[k])
-    end]]--
+            self.actShiftNBits[k] = utee.maxShiftNBitsTable(v)
+            print(k, torch.typename(self.model:get(k)), self.actShiftNBits[k])
+        end
+        --[[
         self.actShiftNBits = {
-            [1] = -10,
-            [3] = -12,
-            [6] = -13,
-            [8] = -14,
-            [11] = -15,
-            [13] = -14,
-            [15] = -15,
-            [18] = -14,
-            [20] = -13,
-            [22] = -12,
-            [25] = -12,
-            [27] = -11,
-            [29] = -10,
-            [33] = -7,
-            [36] = -5,
-            [39] = -6
-        }
+        [1] = -10,
+        [3] = -12,
+        [6] = -13,
+        [8] = -14,
+        [11] = -15,
+        [13] = -14,
+        [15] = -15,
+        [18] = -14,
+        [20] = -13,
+        [22] = -12,
+        [25] = -12,
+        [27] = -11,
+        [29] = -10,
+        [33] = -7,
+        [36] = -5,
+        [39] = -6
+    }
+        ]]--
         print('=> Analyzing done!')
     end
 end
@@ -198,7 +198,19 @@ end
     ]]--
 end
 
-
+function Trainer:manualForward()
+    for i=1, #self.model do
+        if i == 1 then
+            if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
+                self.model:get(i):forward(self.input:double())
+            else 
+                self.model:get(i):forward(self.input)
+            end
+        else
+            self.model:get(i):forward(self.model:get(i-1).output)
+        end
+    end
+end
 
 function Trainer:val()
     local size = self.valDataLoader:size()
@@ -216,9 +228,6 @@ function Trainer:val()
     end
 
     self.model:evaluate()
-    --cutorch.manualSeed(20)
-    
-   -- torch.manualSeed(100)
     -- forward
     for n, sample in self.valDataLoader:run() do
         self:copyInputs(sample)
@@ -235,10 +244,6 @@ function Trainer:val()
         top5Sum = top5Sum + top5
         N = N + 1
         print((' | Val [%d/%d] Top1Err: %7.5f, Top5Err: %7.5f'):format(n, size, top1, top5))
-
-        --self.valDataLoader:reset()
-        --break
-        --if N >= 1 then break end
     end
 
     print((' * Val Done, Top1Err: %7.3f  Top5Err: %7.3f'):format(top1Sum / N, top5Sum / N))

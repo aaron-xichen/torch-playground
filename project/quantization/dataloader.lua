@@ -64,7 +64,7 @@ function DataLoader:run()
                     end
                     collectgarbage()
                     return {
-                        input = batch:view(sz * nCrops, table.unpack(imageSize)):int():float(),
+                        input = batch:view(sz * nCrops, table.unpack(imageSize)),
                         target = target,
                     }
                 end,
