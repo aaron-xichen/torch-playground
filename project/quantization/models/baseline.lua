@@ -10,11 +10,20 @@ local utee = require 'utee'
 local function createModel(opt)
     local netPath = opt.modelRoot .. '/deploy.prototxt'
     local modelPath = opt.modelRoot .. '/weights.caffemodel'
-    local loadType = opt.device == 'gpu' and 'cudnn' or opt.device == 'cpu' and 'nn' or nil
-    assert(loadType, 'Neither gpu nor cpu')
-
-    -- load parameters
-    model = loadcaffe.load(netPath, modelPath, loadType)
+    local torchModelPath = opt.modelRoot .. '/model.t7'
+    
+    local model
+    
+    -- load torch model first if exists
+    if  utee.fileExists(torchModelPath) then
+        print("loading torch model from " .. torchModelPath)
+        model = torch.load(torchModelPath)
+    else
+        local loadType = opt.device == 'gpu' and 'cudnn' or opt.device == 'cpu' and 'nn' or nil
+        assert(loadType, 'Neither gpu nor cpu')
+        print("loading caffe model from " .. modelPath)
+        model = loadcaffe.load(netPath, modelPath, loadType)
+    end
 
     -- remove softmax for efficiency
     local lastLayerName = torch.typename(model:get(#model))
@@ -26,6 +35,7 @@ local function createModel(opt)
     end
 
 
+    --[[
     print('Substituting SpatialConvolution with SpationConvolutionFixedPoint')
     for i=1,#model do
         local layerName = torch.typename(model:get(i))
@@ -35,7 +45,7 @@ local function createModel(opt)
             model:insert(utee.substitute(tmp), i)
         end
     end
-
+    ]]---
 
     -- remove inplace
     for i=1, #model do
@@ -44,6 +54,7 @@ local function createModel(opt)
         end
     end
 
+    -- deterministic mode
     model:apply(
         function(m)
             if m.setMode then m:setMode(1,1,1) end
@@ -52,6 +63,7 @@ local function createModel(opt)
 
     model:clearState()
     print(model)
+    os.exit()
     return model
 end
 

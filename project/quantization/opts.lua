@@ -7,6 +7,7 @@ function M.option(cmd)
     cmd:option('-fcNBits',      -1,        'Number of bits for fc parameters (including sign)')
     cmd:option('-actNBits',        -1,       'Number of bits for activation (including sign)')
     cmd:option('-tensorType',     'float',   'Tensor type of layers')
+    cmd:option('-collectNSamples',  10,      'Number of samples to collect')
     cmd:text()
     return cmd
 end

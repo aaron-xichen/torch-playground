@@ -30,8 +30,6 @@ function Trainer:__init(model, criterion, optimState, opt, trainDataLoader, valD
 
     self.trainDataLoader = trainDataLoader
     self.valDataLoader = valDataLoader
-
-    self.collectNSamples = 10
 end
 
 function Trainer:paramQuantization()
@@ -100,7 +98,7 @@ function Trainer:actAnalysis()
         print("=> Analyzing activation distribution")
         local cache = {}
 
-        print(('=> Sampling %d data points'):format(self.collectNSamples))
+        print(('=> Sampling %d data points'):format(self.opt.collectNSamples))
         for n, sample in self.valDataLoader:run() do
             self:copyInputs(sample)
             self.model:forward(self.input)
@@ -112,7 +110,7 @@ function Trainer:actAnalysis()
                     table.insert(cache[i], self.model:get(i).output)
                 end
             end
-            if n >= self.collectNSamples then
+            if n >= self.opt.collectNSamples then
                 self.valDataLoader:reset()
                 break
             end
