@@ -1,3 +1,5 @@
+local utee = require 'utee'
+
 local M = { }
 
 function M.getProject(arg)
@@ -29,7 +31,6 @@ function M.option()
     cmd:option('-experimentsName',  'none',  'The name of this experiment')
     ------------- Data options ------------------------
     cmd:option('-data',              '/work/shadow/',   'imagenet data path')
-    cmd:option('-externalMeanFile',  'none', 'Externel mean file')
     cmd:option('-dataset',            'none',       'Dataset want to load')
     cmd:option('-nThreads',        4, 'number of data loading threads')
     ------------- Training options --------------------
@@ -70,10 +71,6 @@ function M.parse(cmd, arg)
     -- test only
     if opt.testOnly then
         print('Test Mode')
-    end
-    
-    if opt.externalMeanFile == 'none' then
-        opt.externalMeanFile = false
     end
     
     if opt.device ~= 'cpu' and opt.device ~= 'gpu' then

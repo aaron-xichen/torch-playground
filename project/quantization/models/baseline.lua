@@ -5,24 +5,30 @@ local ReLU = cudnn.ReLU
 local Max = nn.SpatialMaxPooling
 local Avg = cudnn.SpatialAveragePooling
 local SBatchNorm = nn.SpatialBatchNormalization
-local utee = require 'utee'
 
 local function createModel(opt)
-    local netPath = opt.modelRoot .. '/deploy.prototxt'
-    local modelPath = opt.modelRoot .. '/weights.caffemodel'
-    local torchModelPath = opt.modelRoot .. '/model.t7'
-    
     local model
-    
     -- load torch model first if exists
-    if  utee.fileExists(torchModelPath) then
-        print("loading torch model from " .. torchModelPath)
-        model = torch.load(torchModelPath)
+    if  paths.filep(opt.torchModelPath) then
+        print("loading torch model from " .. opt.torchModelPath)
+        model = torch.load(opt.torchModelPath)
     else
         local loadType = opt.device == 'gpu' and 'cudnn' or opt.device == 'cpu' and 'nn' or nil
         assert(loadType, 'Neither gpu nor cpu')
-        print("loading caffe model from " .. modelPath)
-        model = loadcaffe.load(netPath, modelPath, loadType)
+        print("loading caffe model from " .. opt.modelPath)
+        model = loadcaffe.load(opt.netPath, opt.modelPath, loadType)
+        print("Exchanging the first kernel order from BGR to RGB")
+        for i=1, #model do
+            layerName = torch.typename(model:get(i))
+            if layerName == 'nn.SpatialConvolution' or layerName == 'cudnn.SpatialConvolution' then
+                print("- Find " .. layerName, ', exchange it')
+                weight = model:get(i).weight
+                tmp = weight[{{}, {1}, {}, {}}]:clone()
+                weight[{{}, {1}, {}, {}}] = weight[{{}, {3}, {}, {}}]:clone()
+                weight[{{}, {3}, {}, {}}] = tmp
+                break
+            end
+        end
     end
 
     -- remove softmax for efficiency
@@ -61,9 +67,7 @@ local function createModel(opt)
         end
     )
 
-    model:clearState()
-    print(model)
-    os.exit()
+    --model:clearState()
     return model
 end
 

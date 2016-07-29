@@ -1,3 +1,4 @@
+local utee = require 'utee'
 local M = { }
 
 function M.option(cmd)
@@ -13,13 +14,20 @@ function M.option(cmd)
 end
 
 function M.parse(cmd, opt)
+    -- model path
     if opt.modelRoot == 'none' then
         cmd:error('model root required')
     end
+    opt.netPath = opt.modelRoot .. '/deploy.prototxt'
+    opt.modelPath = opt.modelRoot .. '/weights.caffemodel'
+    opt.meanfilePath = opt.modelRoot .. '/meanfile.t7'
+    opt.torchModelPath = opt.modelRoot .. '/model.t7'
+    
     
     if opt.tensorType ~= 'float' and opt.tensorType ~= 'double' then
         cmd:error(('Unknown tensorType: %s'):format(opt.tensorType))
     end
+    
     return opt
 end
 

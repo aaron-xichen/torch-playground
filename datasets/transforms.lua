@@ -11,11 +11,15 @@ function M.Compose(transforms)
     end
 end
 
-function M.SubstractMean(mean)
-    return function(img)
-        img = img:clone()
-        mean:add(-mean)
-        return img
+function M.Cast(factor)
+    if factor > 1.0 then
+        return function(input)
+            return input:int():float()
+        end
+    else
+        return function(input)
+            return input
+        end
     end
 end
 

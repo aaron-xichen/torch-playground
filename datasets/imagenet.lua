@@ -2,6 +2,7 @@ local image = require 'image'
 local paths = require 'paths'
 local t = require 'datasets/transforms'
 local ffi = require 'ffi'
+local utee = require 'utee'
 
 local M = {}
 local ImagenetDataset = torch.class('nn.ImagenetDataset', M)
@@ -11,18 +12,19 @@ function ImagenetDataset:__init(imageInfo, opt, split)
     self.opt = opt
     self.split = split
     self.dir = paths.concat(opt.data, split)
-    self.perm = torch.LongTensor{3, 2, 1}
-    if self.opt.externalMeanFile then
-        print("loading from externel mean file " .. self.opt.externalMeanFile)
-        self.meanstd = torch.load(self.opt.externalMeanFile)
+
+    if paths.filep(self.opt.meanfilePath) then
+        print("Loading from externel mean file " .. self.opt.meanfilePath)
+        self.meanstd = torch.load(self.opt.meanfilePath)
     else
-        print("Using internal mean file")
+        print("Using internal default mean file")
         self.meanstd = {
-            --mean = {103.939, 116.779, 123.68},
-            mean = {104, 117, 124},
-            std = {1, 1, 1}
+            factor = 255.0,
+            mean = {0, 0, 0},
+            std = {1.0, 1.0, 1.0}
         }
     end
+    print(self.meanstd)
     assert(paths.dirp(self.dir), 'directory does not exist: ' .. self.dir)
 end
 
@@ -40,8 +42,7 @@ end
 
 function ImagenetDataset:_loadImage(path)
     local ok, input = pcall(function()
-            -- convert RGB to BGR
-            local val = image.load(path, 3, 'float'):index(1, self.perm):mul(255.0)
+            local val = image.load(path, 3, 'float'):mul(self.meanstd.factor)
             return val
         end)
 
@@ -67,13 +68,6 @@ function ImagenetDataset:size()
     return self.imageInfo.imageClass:size(1)
 end
 
--- Computed from random subset of ImageNet training images
---[[local meanstd = {
-mean = { 0.485, 0.456, 0.406 },
-std = { 0.229, 0.224, 0.225 },
-}]]--
-
-
 local pca = {
     eigval = torch.Tensor{ 0.2175, 0.0188, 0.0045 },
     eigvec = torch.Tensor{
@@ -85,46 +79,25 @@ local pca = {
 
 function ImagenetDataset:preprocess()
     if self.split == 'train' then
-        if self.opt.externalMeanFile then
-            return t.Compose{
-                t.RandomSizedCrop(224),
-                t.ColorJitter({
-                        brightness = 0.4,
-                        contrast = 0.4,
-                        saturation = 0.4,
-                    }),
-                t.Lighting(0.1, pca.eigval, pca.eigvec),
-                t.SubstractMean(self.meanstd),
-                t.HorizontalFlip(0.5),
-            }
-        else
-            return t.Compose{
-                t.RandomSizedCrop(224),
-                t.ColorJitter({
-                        brightness = 0.4,
-                        contrast = 0.4,
-                        saturation = 0.4,
-                    }),
-                t.Lighting(0.1, pca.eigval, pca.eigvec),
-                t.ColorNormalize(self.meanstd),
-                t.HorizontalFlip(0.5),
-            }
-        end
+        return t.Compose{
+            t.RandomSizedCrop(224),
+            t.ColorJitter({
+                    brightness = 0.4,
+                    contrast = 0.4,
+                    saturation = 0.4,
+                }),
+            t.Lighting(0.1, pca.eigval, pca.eigvec),
+            t.ColorNormalize(self.meanstd),
+            t.HorizontalFlip(0.5),
+        }
     elseif self.split == 'val' then
         local Crop = self.opt.tenCrop and t.TenCrop or t.CenterCrop
-        if self.opt.externalMeanFile then
-            return t.Compose{
-                t.Scale(256),
-                t.SubstractMean(self.meanstd),
-                Crop(224),
-            }
-        else
-            return t.Compose{
-                t.Scale(256),
-                t.ColorNormalize(self.meanstd),
-                Crop(224),
-            }
-        end
+        return t.Compose{
+            t.Scale(256),
+            t.ColorNormalize(self.meanstd),
+            Crop(224),
+            t.Cast(self.meanstd.factor)
+        }
     else
         error('invalid split: ' .. self.split)
     end

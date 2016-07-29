@@ -197,6 +197,12 @@ end
 end
 
 function Trainer:manualForward()
+    if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
+        self.model:forward(self.input:double())
+    else 
+        self.model:forward(self.input)
+    end
+    --[[
     for i=1, #self.model do
         if i == 1 then
             if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
@@ -208,6 +214,7 @@ function Trainer:manualForward()
             self.model:get(i):forward(self.model:get(i-1).output)
         end
     end
+    ]]--
 end
 
 function Trainer:val()
