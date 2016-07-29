@@ -56,7 +56,7 @@ function M.maxShiftNBitsTable(xTable)
         maxVal = torch.max(torch.abs(v)) > maxVal and torch.max(torch.abs(v)) or maxVal
     end
     local shiftNBits = -torch.ceil(torch.log(maxVal) / torch.log(2))
-    
+
     -- shift value in place
     for _, v in pairs(xTable) do
         v:mul(2 ^ shiftNBits)
@@ -116,6 +116,91 @@ function M.substitute(source)
     target.bias:copy(source.bias)
     return target
 end
+
+
+-- traverse the whole graph
+local traverse
+traverse = function(m, orders)
+    local layerName = torch.typename(m)
+    if m.modules then
+        for i=1, #m.modules do
+            traverse(m.modules[i], orders)
+        end
+    elseif layerName ~= 'nn.Sequential' and layerName ~= 'nn.ConcatTable' then
+        table.insert(orders, m)
+    end
+end
+M.traverse = traverse
+
+-- generate the topological graph
+function M.topologicalOrder(m)
+    local orders = {}
+    M.traverse(m, orders)
+    return orders
+end
+
+-- analyze the activation distribution
+local analyzeAct
+analyzeAct = function(m, input)
+    local layerName = torch.typename(m)
+    local output
+    if m.modules then
+        if layerName == 'nn.Sequential' then
+            output = input
+            for i=1, #m.modules do
+                output = analyzeAct(m.modules[i], output)
+            end
+        elseif layerName == 'nn.ConcatTable' then
+            output = {}
+            for i=1, #m.modules do
+                table.insert(output, analyzeAct(m.modules[i], input))
+            end
+        else
+            assert('Unknown container ' .. layerName)
+        end
+    else
+        output = m:forward(input)
+        if (m.weight and m.bias ) or layerName == 'nn.CAddTable' then
+            local actShiftBits = -torch.ceil(torch.log(torch.max(torch.abs(output))) / torch.log(2))
+            if not m.actShiftBits then
+                m.actShiftBits = actShiftBits
+            else
+                m.actShiftBits = math.min(m.actShiftBits, actShiftBits)
+            end
+        end
+    end
+    return output
+end 
+M.analyzeAct = analyzeAct
+
+-- forward with quantization
+local quantizationForward
+quantizationForward = function(m, input, actNBits)
+    local layerName = torch.typename(m)
+    local output
+    if m.modules then
+        if layerName == 'nn.Sequential' then
+            output = input
+            for i=1, #m.modules do
+                output = quantizationForward(m.modules[i], output, actNBits)
+            end
+        elseif layerName == 'nn.ConcatTable' then
+            output = {}
+            for i=1, #m.modules do
+                table.insert(output, quantizationForward(m.modules[i], input, actNBits))
+            end
+        else
+            assert('Unknown container ' .. layerName)
+        end
+    else
+        output = m:forward(input)
+        if m.actShiftBits then
+            output:copy(2^-m.actShiftBits * M.quantization(output * 2^m.actShiftBits, 1, actNBits-1))
+        end
+    end
+    return output
+end 
+M.quantizationForward = quantizationForward
 
 return M
 
