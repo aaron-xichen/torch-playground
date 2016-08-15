@@ -141,19 +141,19 @@ end
 
 -- analyze the activation distribution
 local analyzeAct
-analyzeAct = function(m, input)
+analyzeAct = function(m, input, opt)
     local layerName = torch.typename(m)
     local output
     if m.modules then
         if layerName == 'nn.Sequential' then
             output = input
             for i=1, #m.modules do
-                output = analyzeAct(m.modules[i], output)
+                output = analyzeAct(m.modules[i], output, opt)
             end
         elseif layerName == 'nn.ConcatTable' then
             output = {}
             for i=1, #m.modules do
-                table.insert(output, analyzeAct(m.modules[i], input))
+                table.insert(output, analyzeAct(m.modules[i], input, opt))
             end
         else
             assert('Unknown container ' .. layerName)
@@ -161,11 +161,13 @@ analyzeAct = function(m, input)
     else
         output = m:forward(input)
         if (m.weight and m.bias ) or layerName == 'nn.CAddTable' then
-            local actShiftBits = -torch.ceil(torch.log(torch.max(torch.abs(output))) / torch.log(2))
-            if not m.actShiftBits then
-                m.actShiftBits = actShiftBits
-            else
-                m.actShiftBits = math.min(m.actShiftBits, actShiftBits)
+            if layerName ~= 'nn.SpatialBatchNormalization' or opt.isQuantizeBN then
+                local actShiftBits = -torch.ceil(torch.log(torch.max(torch.abs(output))) / torch.log(2))
+                if not m.actShiftBits then
+                    m.actShiftBits = actShiftBits
+                else
+                    m.actShiftBits = math.min(m.actShiftBits, actShiftBits)
+                end
             end
         end
     end
@@ -202,5 +204,39 @@ quantizationForward = function(m, input, actNBits)
 end 
 M.quantizationForward = quantizationForward
 
+function M.convertBias(rootPath, meanfilePath, mode)
+    assert(rootPath, 'Please specify rootPath')
+    assert(meanfilePath, 'Please specify meanfilePath')
+
+    local loadcaffe = require 'loadcaffe'
+    require 'nn'
+    mode = mode or 'cudnn'
+    if mode == 'cudnn' then
+        require 'cudnn'
+    end
+    deployPath = rootPath .. '/deploy.prototxt'
+    weightsPath = rootPath .. '/weights.caffemodel'
+    savePath = rootPath .. '/model.t7'
+    print("Loading model from " .. rootPath)
+    model = loadcaffe.load(deployPath, weightsPath, mode)
+    
+    -- change BGR to RGB
+    weight = model:get(1).weight
+    tmp = weight[{{}, {1}, {}, {}}]:clone()
+    weight[{{}, {1}, {}, {}}] = weight[{{}, {3}, {}, {}}]:clone()
+    weight[{{}, {3}, {}, {}}] = tmp
+     
+    meanVal = torch.Tensor(torch.load(meanfilePath).mean)
+    meanVal = - meanVal:reshape(3, 1, 1):expand(3, 224, 224)
+    if mode == 'cudnn' then
+        meanVal = meanVal:cuda()
+    end
+    out = model:get(1):forward(meanVal)
+    delta = out[{{}, 100, 100}]
+    model:get(1).bias:add(delta)
+    
+    print("Saving new model to " .. savePath)
+    torch.save(savePath, model)
+end
 return M
 

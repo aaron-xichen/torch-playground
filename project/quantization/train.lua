@@ -28,31 +28,33 @@ function Trainer:quantizeParam()
             local bias = self.orders[i].bias
             local layerName = torch.typename(self.orders[i])
             if weight and bias then
-                local paramNBits
-                if layerName == 'cudnn.SpatialConvolution' 
-                    or layerName == 'nn.SpatialConvolution' 
-                    or layerName == 'nn.SpatialConvolutionFixedPoint' 
-                    or layerName == 'nn.SpatialBatchNormalization' then
-                    paramNBits = self.opt.convNBits
-                elseif layerName == 'nn.Linear' then
-                    paramNBits = self.opt.fcNBits
-                else
-                    assert(nil, "Unknow layer type " .. layerName)
-                end
+                if layerName ~= 'nn.SpatialBatchNormalization' or self.opt.isQuantizeBN then
+                    local paramNBits
+                    if layerName == 'cudnn.SpatialConvolution' 
+                        or layerName == 'nn.SpatialConvolution' 
+                        or layerName == 'nn.SpatialConvolutionFixedPoint' 
+                        or layerName == 'nn.SpatialBatchNormalization' then
+                        paramNBits = self.opt.convNBits
+                    elseif layerName == 'nn.Linear' then
+                        paramNBits = self.opt.fcNBits
+                    else
+                        assert(nil, "Unknow layer type " .. layerName)
+                    end
 
-                if torch.abs(weight):max() ~= 0  then
-                    local weightShiftBits = -torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
-                    weight:copy(2^-weightShiftBits * utee.quantization(weight * 2^weightShiftBits, 1, paramNBits-1))
-                    self.orders[i].weightShiftBits = weightShiftBits
-                end
+                    if torch.abs(weight):max() ~= 0  then
+                        local weightShiftBits = -torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
+                        weight:copy(2^-weightShiftBits * utee.quantization(weight * 2^weightShiftBits, 1, paramNBits-1))
+                        self.orders[i].weightShiftBits = weightShiftBits
+                    end
 
-                if torch.abs(bias):max() ~= 0 then
-                    local biasShiftBits = -torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
-                    bias:copy(2^-biasShiftBits * utee.quantization(bias * 2^biasShiftBits, 1, paramNBits-1))
-                    self.orders[i].biasShiftBits = biasShiftBits
-                end
+                    if torch.abs(bias):max() ~= 0 then
+                        local biasShiftBits = -torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
+                        bias:copy(2^-biasShiftBits * utee.quantization(bias * 2^biasShiftBits, 1, paramNBits-1))
+                        self.orders[i].biasShiftBits = biasShiftBits
+                    end
 
-                print(layerName, self.orders[i].weightShiftBits, self.orders[i].biasShiftBits)
+                    print(layerName, self.orders[i].weightShiftBits, self.orders[i].biasShiftBits)
+                end
             end
         end
         print(("=> Quantization Info, ConvParam: %d bits, FcParam: %d bits, Activation: %d bits")
@@ -76,7 +78,7 @@ function Trainer:analyzeAct()
         print("=> Analyzing activation distribution")
         for n, sample in self.valDataLoader:run() do
             self:copyInputs(sample)
-            utee.analyzeAct(self.model, self.input)
+            utee.analyzeAct(self.model, self.input, self.opt)
             if n >= self.opt.collectNSamples then
                 self.valDataLoader:reset()
                 break

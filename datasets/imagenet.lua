@@ -96,7 +96,7 @@ function ImagenetDataset:preprocess()
             t.Scale(256),
             t.ColorNormalize(self.meanstd),
             Crop(224),
-            t.Cast(self.meanstd.factor)
+            t.Cast(self.meanstd.factor), -- whether to cast to int-float
         }
     else
         error('invalid split: ' .. self.split)
