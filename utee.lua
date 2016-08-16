@@ -216,7 +216,13 @@ function M.convertBias(rootPath, meanfilePath, mode)
     end
     deployPath = rootPath .. '/deploy.prototxt'
     weightsPath = rootPath .. '/weights.caffemodel'
-    savePath = rootPath .. '/model.t7'
+    local savePath
+    if mode == 'cudnn' then
+        savePath = rootPath .. '/model.t7'
+    else
+        savePath = rootPath .. '/modelCPU.t7'
+    end
+    
     print("Loading model from " .. rootPath)
     model = loadcaffe.load(deployPath, weightsPath, mode)
     

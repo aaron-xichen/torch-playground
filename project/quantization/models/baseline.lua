@@ -40,32 +40,12 @@ local function createModel(opt)
         end
     end
 
-
-    --[[
-    print('Substituting SpatialConvolution with SpationConvolutionFixedPoint')
-    for i=1,#model do
-        local layerName = torch.typename(model:get(i))
-        if layerName == 'nn.SpatialConvolution' and opt.device == 'cpu' then
-            local tmp = model:get(i):clone()
-            model:remove(i)
-            model:insert(utee.substitute(tmp), i)
-        end
-    end
-    ]]---
-
     -- remove inplace
     for i=1, #model do
         if model:get(i).inplace then
             model:get(i).inplace = false
         end
     end
-
-    -- deterministic mode
-    model:apply(
-        function(m)
-            if m.setMode then m:setMode(1,1,1) end
-        end
-    )
 
     --model:clearState()
     return model

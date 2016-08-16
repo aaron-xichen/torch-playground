@@ -18,7 +18,12 @@ function M.parse(cmd, opt)
         print(("Reading shift table from %s"):format(opt.shiftInfoPath))
         opt.shiftTable = torch.load(opt.shiftInfoPath)
     end
-    
+
+    opt.netPath = opt.modelRoot .. '/deploy.prototxt'
+    opt.modelPath = opt.modelRoot .. '/weights.caffemodel'
+    opt.meanfilePath = opt.modelRoot .. '/meanfile.t7'
+    opt.torchModelPath = opt.modelRoot .. '/modelCPU.t7' -- support cpu model only
+
     return opt
 end
 
