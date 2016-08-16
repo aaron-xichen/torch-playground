@@ -77,15 +77,21 @@ function Trainer:fillParamInt32()
     end
 
     -- save meta info to disk
-    data = {
-        winShiftTable = self.opt.winShiftTable,
-        decPosSaveTable = self.opt.decPosSaveTable,
-        biasAlignTable = self.opt.biasAlignTable,
-        shiftTable = self.opt.shiftTable,
-        decPosRawTable = self.opt.decPosRawTable
-    }
-    print('saving to meta.t7')
-    torch.save('project/fixpoint/models/meta.t7', data)
+    metaInfo = {}
+    for k, v in pairs(self.opt.winShiftTable) do
+        metaInfo[k] = {}
+        table.insert(metaInfo[k], self.opt.shiftTable[k][1]) -- weight
+        table.insert(metaInfo[k], self.opt.shiftTable[k][2]) -- bias
+        table.insert(metaInfo[k], self.opt.shiftTable[k][3]) -- activation
+        table.insert(metaInfo[k], self.opt.biasAlignTable[k]) -- biasAlign
+        table.insert(metaInfo[k], self.opt.winShiftTable[k]) -- window shift
+        table.insert(metaInfo[k], self.opt.decPosSaveTable[k]) -- decPosSave
+        table.insert(metaInfo[k], self.opt.decPosRawTable[k]) -- decPosRaw
+    end
+    
+    print(metaInfo)
+    print('Saving meta info to ' .. self.opt.metaInfoPath)
+    torch.save(self.opt.metaInfoPath, metaInfo)
     
     assert(layerIdx == #self.opt.shiftTable, 
         ('Layer number does not match, %d vs %d'):format(layerIdx, #self.opt.shiftTable))

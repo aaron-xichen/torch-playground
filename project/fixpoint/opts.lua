@@ -3,7 +3,8 @@ local M = { }
 function M.option(cmd)
     cmd:text('Torch-7 Fixed Point Arguments Options:')
     cmd:option('-modelRoot',       'none',    'Externel model folder')
-    cmd:option('-shiftInfoPath',   'none',     'Shift bits info file path')
+    cmd:option('-shiftInfoPath',   'shiftInfo.t7',     'Load path of shift bits, including weights, bias and activation')
+    cmd:option('-metaInfoPath',    'meta.t7',          'Save path of all info')
     cmd:text()
     return cmd
 end

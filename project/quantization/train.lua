@@ -120,7 +120,17 @@ function Trainer:val()
     self:quantizeParam()
     self:castTensorType()
     self:analyzeAct()
-
+    
+    shiftTable = {}
+    for k, v in pairs(self.orders) do
+        if v.weightShiftBits then
+            print(k, v.weightShiftBits, v.biasShiftBits, v.actShiftBits)
+            shiftTable[k] = {v.weightShiftBits, v.biasShiftBits, v.actShiftBits}
+        end
+    end
+    print("Saving shift info to " .. self.opt.shiftInfoSavePath)
+    torch.save(self.opt.shiftInfoSavePath, shiftTable)
+    
     -- forward
     for n, sample in self.valDataLoader:run() do
         self:copyInputs(sample)

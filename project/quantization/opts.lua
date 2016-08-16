@@ -10,6 +10,7 @@ function M.option(cmd)
     cmd:option('-tensorType',     'float',   'Tensor type of layers')
     cmd:option('-collectNSamples',  10,      'Number of samples to collect')
     cmd:option('-isQuantizeBN',  'true',      'Whether to quantize BN')
+    cmd:option('-shiftInfoSavePath', 'shiftInfo.t7', 'Save path of shift bits, including weights, bias and activation')
     cmd:text()
     return cmd
 end
@@ -22,7 +23,7 @@ function M.parse(cmd, opt)
     opt.netPath = opt.modelRoot .. '/deploy.prototxt'
     opt.modelPath = opt.modelRoot .. '/weights.caffemodel'
     opt.meanfilePath = opt.modelRoot .. '/meanfile.t7'
-    opt.torchModelPath = opt.modelRoot .. '/weights.t7'
+    opt.torchModelPath = opt.modelRoot .. '/model.t7'
     
     
     if opt.tensorType ~= 'float' and opt.tensorType ~= 'double' then
