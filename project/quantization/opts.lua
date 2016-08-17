@@ -23,8 +23,16 @@ function M.parse(cmd, opt)
     opt.netPath = opt.modelRoot .. '/deploy.prototxt'
     opt.modelPath = opt.modelRoot .. '/weights.caffemodel'
     opt.meanfilePath = opt.modelRoot .. '/meanfile.t7'
-    opt.torchModelPath = opt.modelRoot .. '/model.t7'
+    if opt.device == 'cudnn' then
+        opt.torchModelPath = opt.modelRoot .. '/model.t7'
+    else 
+        opt.torchModelPath = opt.modelRoot .. '/modelCPU.t7'
+    end
     
+    if paths.filep(opt.shiftInfoSavePath) then
+        print("Loading shift info table from " .. opt.shiftInfoSavePath)
+        opt.shiftInfoTable = torch.load(opt.shiftInfoSavePath)
+    end
     
     if opt.tensorType ~= 'float' and opt.tensorType ~= 'double' then
         cmd:error(('Unknown tensorType: %s'):format(opt.tensorType))

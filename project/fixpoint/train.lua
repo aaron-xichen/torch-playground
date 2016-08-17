@@ -58,7 +58,6 @@ function Trainer:fillParamInt32()
             self.opt.biasAlignTable[i] = biasAlignShiftBits
 
         end
-        self.model:get(i):type('torch.IntTensor')
     end
 
     -- save meta info to disk
@@ -77,6 +76,15 @@ function Trainer:fillParamInt32()
 
     print('Saving meta info to ' .. self.opt.metaInfoPath)
     torch.save(self.opt.metaInfoPath, metaInfo)
+end
+
+function Trainer:castToInt32Type()
+    for i=1, #self.model do
+        self.model:get(i):type('torch.IntTensor')
+        if self.model:get(i).weight then
+            print(torch.typename(self.model:get(i).weight))
+        end
+    end
 end
 
 function Trainer:forwardInt32()
@@ -129,11 +137,12 @@ function Trainer:val()
     local N = 0
 
     self:fillParamInt32()
-
+    self:castToInt32Type()
+    
     local totalTimer = torch.Timer()
     local timer = torch.Timer()
     for n, sample in self.valDataLoader:run() do
-        print('data: ', torch.sum(sample.input:int():float()))
+        print('data: ', torch.sum(torch.abs(sample.input)))
         timer:reset()
         self:copyInputs(sample)
 

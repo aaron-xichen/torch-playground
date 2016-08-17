@@ -47,7 +47,7 @@ local function createModel(opt)
         end
     end
 
-    --model:clearState()
+    model:clearState()
     return model
 end
 

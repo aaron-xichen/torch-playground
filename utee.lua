@@ -197,7 +197,11 @@ quantizationForward = function(m, input, actNBits)
     else
         output = m:forward(input)
         if m.actShiftBits then
+            local outputTmp1 = output:float()
+            print(outputTmp1:sum(), outputTmp1:min(), outputTmp1:max())
             output:copy(2^-m.actShiftBits * M.quantization(output * 2^m.actShiftBits, 1, actNBits-1))
+            local outputTmp2 = output:float()
+            print(outputTmp2:sum(), outputTmp2:min(), outputTmp2:max())
         end
     end
     return output
@@ -214,6 +218,7 @@ function M.convertBias(rootPath, meanfilePath, mode)
     if mode == 'cudnn' then
         require 'cudnn'
     end
+
     deployPath = rootPath .. '/deploy.prototxt'
     weightsPath = rootPath .. '/weights.caffemodel'
     local savePath
@@ -222,16 +227,22 @@ function M.convertBias(rootPath, meanfilePath, mode)
     else
         savePath = rootPath .. '/modelCPU.t7'
     end
-    
+
     print("Loading model from " .. rootPath)
     model = loadcaffe.load(deployPath, weightsPath, mode)
-    
+
+    model:apply(
+        function(m)
+            if m.setMode then m:setMode(1, 1, 1) end
+        end
+    )
+
     -- change BGR to RGB
     weight = model:get(1).weight
     tmp = weight[{{}, {1}, {}, {}}]:clone()
     weight[{{}, {1}, {}, {}}] = weight[{{}, {3}, {}, {}}]:clone()
     weight[{{}, {3}, {}, {}}] = tmp
-     
+
     meanVal = torch.Tensor(torch.load(meanfilePath).mean)
     meanVal = - meanVal:reshape(3, 1, 1):expand(3, 224, 224)
     if mode == 'cudnn' then
@@ -240,7 +251,7 @@ function M.convertBias(rootPath, meanfilePath, mode)
     out = model:get(1):forward(meanVal)
     delta = out[{{}, 100, 100}]
     model:get(1).bias:add(delta)
-    
+
     print("Saving new model to " .. savePath)
     torch.save(savePath, model)
 end

@@ -21,7 +21,7 @@ local function createModel(opt)
         for i=1, #model do
             layerName = torch.typename(model:get(i))
             if layerName == 'nn.SpatialConvolution' or layerName == 'cudnn.SpatialConvolution' then
-                print("- Find " .. layerName, ', exchange it')
+                print("- Find " .. layerName .. ', exchange it')
                 weight = model:get(i).weight
                 tmp = weight[{{}, {1}, {}, {}}]:clone()
                 weight[{{}, {1}, {}, {}}] = weight[{{}, {3}, {}, {}}]:clone()
@@ -50,7 +50,6 @@ local function createModel(opt)
         end
     end
 
-
     -- remove inplace
     for i=1, #model do
         if model:get(i).inplace then
@@ -58,7 +57,7 @@ local function createModel(opt)
         end
     end
 
-    --model:clearState()
+    model:clearState()
     return model
 
 end

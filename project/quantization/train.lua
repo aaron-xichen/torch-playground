@@ -29,6 +29,14 @@ function Trainer:quantizeParam()
             local layerName = torch.typename(self.orders[i])
             if weight and bias then
                 if layerName ~= 'nn.SpatialBatchNormalization' or self.opt.isQuantizeBN then
+                    if self.opt.shiftInfoTable then
+                        self.orders[i].weightShiftBits = self.opt.shiftInfoTable[i][1]
+                        self.orders[i].biasShiftBits = self.opt.shiftInfoTable[i][2]
+                    else
+                        self.orders[i].weightShiftBits = -torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
+                        self.orders[i].biasShiftBits = -torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
+                    end
+
                     local paramNBits
                     if layerName == 'cudnn.SpatialConvolution' 
                         or layerName == 'nn.SpatialConvolution' 
@@ -40,17 +48,15 @@ function Trainer:quantizeParam()
                     else
                         assert(nil, "Unknow layer type " .. layerName)
                     end
-
+                    
                     if torch.abs(weight):max() ~= 0  then
-                        local weightShiftBits = -torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
+                        local weightShiftBits = self.orders[i].weightShiftBits
                         weight:copy(2^-weightShiftBits * utee.quantization(weight * 2^weightShiftBits, 1, paramNBits-1))
-                        self.orders[i].weightShiftBits = weightShiftBits
                     end
 
                     if torch.abs(bias):max() ~= 0 then
-                        local biasShiftBits = -torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
+                        local biasShiftBits = self.orders[i].biasShiftBits
                         bias:copy(2^-biasShiftBits * utee.quantization(bias * 2^biasShiftBits, 1, paramNBits-1))
-                        self.orders[i].biasShiftBits = biasShiftBits
                     end
 
                     print(layerName, self.orders[i].weightShiftBits, self.orders[i].biasShiftBits)
@@ -66,6 +72,10 @@ function Trainer:castTensorType()
     for i=1, #self.orders do
         if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
             self.orders[i]:type('torch.DoubleTensor')
+        elseif self.opt.device == 'cpu' and self.opt.tensorType == 'float' then
+            self.orders[i]:type('torch.FloatTensor')
+        elseif self.opt.device == 'gpu' then
+            self.orders[i]:type('torch.CudaTensor')
         end
         if self.orders[i].weight then
             print(torch.typename(self.orders[i].weight))
@@ -76,12 +86,20 @@ end
 function Trainer:analyzeAct()
     if self.opt.actNBits ~= -1 then
         print("=> Analyzing activation distribution")
-        for n, sample in self.valDataLoader:run() do
-            self:copyInputs(sample)
-            utee.analyzeAct(self.model, self.input, self.opt)
-            if n >= self.opt.collectNSamples then
-                self.valDataLoader:reset()
-                break
+        if self.opt.shiftInfoTable then
+            for i=1, #self.orders do
+                if self.opt.shiftInfoTable[i] then
+                    self.orders[i].actShiftBits = self.opt.shiftInfoTable[i][3]
+                end
+            end
+        else
+            for n, sample in self.valDataLoader:run() do
+                self:copyInputs(sample)
+                utee.analyzeAct(self.model, self.input, self.opt)
+                if n >= self.opt.collectNSamples then
+                    self.valDataLoader:reset()
+                    break
+                end
             end
         end
 
@@ -120,7 +138,7 @@ function Trainer:val()
     self:quantizeParam()
     self:castTensorType()
     self:analyzeAct()
-    
+
     shiftTable = {}
     for k, v in pairs(self.orders) do
         if v.weightShiftBits then
@@ -130,12 +148,11 @@ function Trainer:val()
     end
     print("Saving shift info to " .. self.opt.shiftInfoSavePath)
     torch.save(self.opt.shiftInfoSavePath, shiftTable)
-    
+
     -- forward
     for n, sample in self.valDataLoader:run() do
         self:copyInputs(sample)
-        --torch.save('input.t7', sample.input:float())
-        print('data: ', torch.sum(sample.input))
+        print('data: ', torch.sum(torch.abs(sample.input)))
         if self.opt.actNBits == -1 then
             self:manualForward()
         else
