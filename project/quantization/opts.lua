@@ -23,7 +23,7 @@ function M.parse(cmd, opt)
     opt.netPath = opt.modelRoot .. '/deploy.prototxt'
     opt.modelPath = opt.modelRoot .. '/weights.caffemodel'
     opt.meanfilePath = opt.modelRoot .. '/meanfile.t7'
-    if opt.device == 'cudnn' then
+    if opt.device == 'gpu' then
         opt.torchModelPath = opt.modelRoot .. '/model.t7'
     else 
         opt.torchModelPath = opt.modelRoot .. '/modelCPU.t7'

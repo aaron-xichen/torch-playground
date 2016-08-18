@@ -59,6 +59,8 @@ function Trainer:quantizeParam()
                         bias:copy(2^-biasShiftBits * utee.quantization(bias * 2^biasShiftBits, 1, paramNBits-1))
                     end
 
+                    --print("setting bias to zero")
+                    --bias:zero()
                     print(layerName, self.orders[i].weightShiftBits, self.orders[i].biasShiftBits)
                 end
             end
@@ -182,7 +184,6 @@ function Trainer:computeScore(output, target, nCrops)
     if nCrops > 1 then
         output = output:view(output:size(1) / nCrops, nCrops, output:size(2)):sum(2):squeeze(2)
     end
-
     local batchSize = output:size(1)
     local _ , predictions = output:float():sort(2, true) -- descending
     local correct = predictions:eq(target:long():view(batchSize, 1):expandAs(output))

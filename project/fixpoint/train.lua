@@ -51,6 +51,9 @@ function Trainer:fillParamInt32()
             local bias1 = utee.fixedPoint(2^biasShiftBits * bias, 1, 7) * 2^biasAlignShiftBits
             self.model:get(i).bias:copy(bias1)
 
+            --print("setting bias to zero")
+            --self.model:get(i).bias:zero()
+            
             -- save window shift bits
             self.opt.winShiftTable[i] = winShiftBits
             self.opt.decPosRawTable[i] = decPosRaw
@@ -109,14 +112,11 @@ function Trainer:forwardInt32()
 
             output:abs():apply(
                 function(x)
-                    -- overflow, return max
-                    if bit.band(x, overflow) ~= 0 then 
+                    if bit.band(x, overflow) ~= 0 then -- overflow, return max
                         return 127
-                        -- ceil
-                    elseif bit.band(x, roundBit) ~= 0 then
+                    elseif bit.band(x, roundBit) ~= 0 then -- ceil
                         return math.min(bit.rshift(bit.band(x, shiftLeft), self.opt.winShiftTable[i]) + 1, 127)
-                        -- floor
-                    else
+                    else -- floor
                         return bit.rshift(bit.band(x, shiftLeft), self.opt.winShiftTable[i])
                     end
                 end
@@ -142,6 +142,8 @@ function Trainer:val()
     local totalTimer = torch.Timer()
     local timer = torch.Timer()
     for n, sample in self.valDataLoader:run() do
+        print("saving to input.t7")
+        torch.save('input.t7', sample.input)
         print('data: ', torch.sum(torch.abs(sample.input)))
         timer:reset()
         self:copyInputs(sample)
