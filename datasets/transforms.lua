@@ -11,6 +11,12 @@ function M.Compose(transforms)
     end
 end
 
+function M.SubstractMean(meanstd)
+    return function(img)
+        return torch.add(img, -meanstd)
+    end
+end
+
 function M.Cast(factor)
     if factor > 1.0 then
         return function(input)

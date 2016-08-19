@@ -11,7 +11,7 @@ function join(input)
 end
 
 
-function M.exec(opt, cacheFile)
+function M.exec(opt, cacheFilePath)
     local trainListPath = opt.trainListPath
     local valListPath = opt.valListPath
     local imgRoot = opt.imgRoot
@@ -30,11 +30,10 @@ function M.exec(opt, cacheFile)
         if torch.sum(torch.Tensor(fields)) > 0 then
             table.insert(trainTarget, fields)
 
-            img = image.load(imgRoot .. imgPath, 3, 'byte')
+            img = image.load(imgRoot .. imgPath, 3, 'float')
             table.insert(trainInput, img)
             i = i + 1
         end
-        if i == 64 then break end
     end
 
     i = 0
@@ -46,11 +45,10 @@ function M.exec(opt, cacheFile)
         if torch.sum(torch.Tensor(fields)) > 0 then
             table.insert(valTarget, fields)
 
-            img = image.load(imgRoot .. imgPath, 3, 'byte')
+            img = image.load(imgRoot .. imgPath, 3, 'float')
             table.insert(valInput, img)
             i = i + 1
         end
-        if i == 64 then break end
     end
 
     print(".Joining data into a single file")
@@ -68,21 +66,12 @@ function M.exec(opt, cacheFile)
         labels = valTargetTensor
     }
 
-    local tmp = trainInputTensor:transpose(1, 2):contiguous():view(3, -1)
-    local mean = torch.mean(tmp:float(), 2):squeeze()
-    local std = torch.std(tmp:float(), 2):squeeze()
-    local meanstd = {
-        mean = torch.totable(mean),
-        std = torch.totable(std)
-    }
-    print(".Saving Huawei Scene labeling dataset to " .. cacheFile)
-    print('.Mean and std', meanstd)
+    print(".Saving Huawei Scene labeling dataset to " .. cacheFilePath)
     torch.save(
-        cacheFile, 
+        cacheFilePath, 
         {
             train = trainData,
             val = valData,
-            meanstd = meanstd
         }
     )
 end

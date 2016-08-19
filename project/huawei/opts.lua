@@ -6,17 +6,12 @@ function M.option(cmd)
     cmd:option('-lossWeights',        'none',       'Loss weights')
     cmd:option('-threadshold',         0.5,       'Threadshold')
     cmd:option('-modelRoot', 'none', 'Model root, must contains deploy.prototxt and weights.caffemodel')
-    --cmd:option('-loadType',     'cudnn',              'Options: nn | cudnn')
-    cmd:option('-trainListPath', '/home/chenxi/dataset/huawei_scene_labeling/train.labels', 'Train list path')
-    cmd:option('-valListPath', '/home/chenxi/dataset/huawei_scene_labeling/val.labels', 'Val list path')
-    cmd:option('-imgRoot', '/home/chenxi/dataset/huawei_scene_labeling/resized256/', 'Image root path')
-    cmd:option('-externelMean',        'none',  'Externel mean file path')
     cmd:text()
     return cmd
 end
 
 function M.parse(cmd, opt)
-    opt.lossWeights = torch.Tensor{2187, 1727, 152, 679, 167, 17, 112, 60, 633, 397, 61, 455, 69, 8}
+    opt.lossWeights = torch.Tensor{2187, 1727, 152, 679, 167, 17, 112, 60, 633, 397, 61, 455, 69}
     opt.lossWeights = opt.lossWeights / torch.sum(opt.lossWeights) * opt.lossWeights:nElement()
 
     local info = 'Loss weights:'
@@ -25,28 +20,23 @@ function M.parse(cmd, opt)
     end
     print(info)
 
-    assert(opt.modelRoot ~= 'none')
-    if opt.externelMean ~= 'none' then
-        print('Loading externel meanfile from ' .. opt.externelMean)
-        opt.externelMean = torch.load(opt.externelMean)
-    else
-        print('Using internel meanfile')
-    end
-
-    if opt.loadType == 'cudnn' then
-        print("Running on GPU")
-    else
-        print("Running on CPU")
+    assert(opt.modelRoot ~= 'none', 'Model root required')
+    opt.netPath = paths.concat(opt.modelRoot, 'deploy.prototxt')
+    opt.modelPath = paths.concat(opt.modelRoot, 'weights.caffemodel')
+    opt.meanfilePath = paths.concat(opt.modelRoot, 'meanfile.t7')
+    if opt.device == 'gpu' then
+        opt.torchModelPath = paths.concat(opt.modelRoot, 'model.t7')
+    else 
+        opt.torchModelPath = paths.concat(opt.modelRoot, 'modelCPU.t7')
     end
 
     if not opt.testOnly then
         print(("Finetuning from %s with LR: %.3f and lrRatio: %.6f"):format(paths.basename(opt.modelRoot), opt.LR, opt.lrRatio))
     end
-    
-    if opt.dataset == 'none' then
-        cmd:error('Dataset required')
-    end
-    
+
+    opt.imgRoot = paths.concat(opt.data, 'resized256')
+    opt.trainListPath = paths.concat(opt.data, 'train.labels')
+    opt.valListPath = paths.concat(opt.data, 'val.labels')
     return opt
 end
 

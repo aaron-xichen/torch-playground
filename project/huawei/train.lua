@@ -1,16 +1,16 @@
-
 local optim = require 'optim'
 
 local M = {}
 local Trainer = torch.class('huawei.Trainer', M)
 
-function Trainer:__init(model, criterion, optimState, opt)
+function Trainer:__init(model, criterion, optimState, opt, trainDataLoader, valDataLoader)
     self.model = model
     self.criterion = criterion
     self.opt = opt
 
     self.params, self.gradParams = self.model:parameters()
     self.optimStates = {}
+    
     -- for different learning rate
     for i=1, #self.params do
         table.insert(self.optimStates,
@@ -24,6 +24,9 @@ function Trainer:__init(model, criterion, optimState, opt)
             }
         )
     end
+    
+    self.trainDataLoader = trainDataLoader
+    self.valDataLoader = valDataLoader
 end
 
 function Trainer:getBestStat()
@@ -32,7 +35,7 @@ function Trainer:getBestStat()
     return keys, vals
 end
 
-function Trainer:train(epoch, dataloader)
+function Trainer:train(epoch)
     for i=1, #self.params-2 do
         self.optimStates[i].learningRate = self:learningRate(epoch) * self.opt.lrRatio
     end
@@ -40,7 +43,7 @@ function Trainer:train(epoch, dataloader)
     self.optimStates[#self.params].learningRate = 2 * self:learningRate(epoch) -- for b
     
 
-    local size = dataloader:size()
+    local size = self.trainDataLoader:size()
     local hitAllSum, hitOneSum, lossSum = 0.0, 0.0, 0.0
     local individualSum = nil
 
@@ -51,12 +54,12 @@ function Trainer:train(epoch, dataloader)
     self.model:training()
 
     local timer = torch.Timer()
-    for n, sample in dataloader:nextBatch() do
+    for n, sample in self.trainDataLoader:nextBatch() do
         local dataTime = timer:time().real
         timer:reset()
         
         self:copyInputs(sample)
-        local output = self.model:forward(self.input):float()
+        local output = self.model:forward(self.input)
         local loss = self.criterion:forward(self.model.output, self.target)
 
         self.model:zeroGradParameters()
@@ -71,7 +74,7 @@ function Trainer:train(epoch, dataloader)
             optim.sgd(feval, self.params[i], self.optimStates[i])
         end
         
-        local hitAll, hitOne, individual = self:computeScore(output, sample.target, 1)
+        local hitAll, hitOne, individual = self:computeScore(output:float(), self.target:int(), 1)
         hitAllSum = hitAllSum + hitAll
         hitOneSum = hitOneSum + hitOne
         if not individualSum then
@@ -106,8 +109,8 @@ function Trainer:train(epoch, dataloader)
     print(info)
 end
 
-function Trainer:val(dataloader)
-    local size = dataloader:size()
+function Trainer:val()
+    local size = self.valDataLoader:size()
     local nCrops = self.opt.tenCrop and 10 or 1
     local hitAllSum, hitOneSum, lossSum, top1Sum, top3Sum = 0.0, 0.0, 0.0, 0.0, 0.0
     local individualSum = nil
@@ -116,23 +119,16 @@ function Trainer:val(dataloader)
     self.model:evaluate()
     local timer = torch.Timer()
     cost_time = {}
-    for n, sample in dataloader:nextBatch() do
-        local input, target
-        if self.opt.device == 'gpu' then
-            self:copyInputs(sample)
-            input = self.input
-            target = self.target -- GPU automatically convert to float
-        else
-            input = sample.input
-            target = sample.target:float() -- BCECriterion needs both float tensor
-        end
+    for n, sample in self.valDataLoader:nextBatch() do
+        self:copyInputs(sample)
+        
         timer:reset()
-        self.model:forward(input)
+        local output = self.model:forward(self.input)
         local testTime = timer:time().real
         table.insert(cost_time, testTime)
-        local loss = self.criterion:forward(self.model.output, target)
+        local loss = self.criterion:forward(self.model.output, self.target)
 
-        local hitAll, hitOne, individual, top1, top3 = self:computeScore(self.model.output, target:int(), nCrops)
+        local hitAll, hitOne, individual, top1, top3 = self:computeScore(output:float(), self.target:int(), nCrops)
 
         hitAllSum = hitAllSum + hitAll
         hitOneSum = hitOneSum + hitOne
@@ -191,13 +187,13 @@ function Trainer:computeScore(output, target, nCrops)
 end
 
 function Trainer:copyInputs(sample)
-    self.input = self.input or (self.opt.nGPU == 1
-        and torch.CudaTensor()
-        or cutorch.createCudaHostTensor())
-    self.target = self.target or torch.CudaTensor()
-
-    self.input:resize(sample.input:size()):copy(sample.input)
-    self.target:resize(sample.target:size()):copy(sample.target)
+    if self.opt.device == 'gpu' then
+        self.input = sample.input:cuda()
+        self.target = sample.target:cuda()
+    else
+        self.input = sample.input
+        self.target = sample.target
+    end
 end
 
 function Trainer:learningRate(epoch)

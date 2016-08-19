@@ -77,6 +77,7 @@ function M.parse(cmd, arg)
         cmd:error(('Unknown device : %s'):foramt(opt.device))
     end
     
+    assert(opt.dataset ~= 'none', 'Dataset required')
     return opt
 end
 
