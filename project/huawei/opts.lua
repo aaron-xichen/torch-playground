@@ -2,6 +2,7 @@ local M = { }
 
 function M.option(cmd)
     cmd:text('Torch-7 Huawei Scene Multi-label Classification Arguments Options:')
+    cmd:option('-last',                 0,        'The number of last layers to finetune')
     cmd:option('-lrRatio',              0.01,      'The ratio between pretrained layers and new layer')
     cmd:option('-lossWeights',        'none',       'Loss weights')
     cmd:option('-threadshold',         0.5,       'Threadshold')
@@ -34,7 +35,7 @@ function M.parse(cmd, opt)
         print(("Finetuning from %s with LR: %.3f and lrRatio: %.6f"):format(paths.basename(opt.modelRoot), opt.LR, opt.lrRatio))
     end
 
-    opt.imgRoot = paths.concat(opt.data, 'resized256')
+    opt.imgRoot = paths.concat(opt.data, 'resized224')
     opt.trainListPath = paths.concat(opt.data, 'train.labels')
     opt.valListPath = paths.concat(opt.data, 'val.labels')
     return opt

@@ -1,16 +1,6 @@
 require 'image';
 local M = {}
 
-function join(input)
-    inputSize = torch.totable(input[1]:size())
-    table.insert(inputSize, 1, -1)
-    m = nn.Sequential()
-    m:add(nn.JoinTable(1))
-    m:add(nn.View(unpack(inputSize)))
-    return m:forward(input):byte()
-end
-
-
 function M.exec(opt, cacheFilePath)
     local trainListPath = opt.trainListPath
     local valListPath = opt.valListPath
@@ -30,7 +20,7 @@ function M.exec(opt, cacheFilePath)
         if torch.sum(torch.Tensor(fields)) > 0 then
             table.insert(trainTarget, fields)
 
-            img = image.load(imgRoot .. imgPath, 3, 'float')
+            img = image.load(paths.concat(imgRoot, imgPath), 3, 'byte')
             table.insert(trainInput, img)
             i = i + 1
         end
@@ -45,16 +35,19 @@ function M.exec(opt, cacheFilePath)
         if torch.sum(torch.Tensor(fields)) > 0 then
             table.insert(valTarget, fields)
 
-            img = image.load(imgRoot .. imgPath, 3, 'float')
+            img = image.load(paths.concat(imgRoot, imgPath), 3, 'byte')
             table.insert(valInput, img)
             i = i + 1
         end
     end
 
     print(".Joining data into a single file")
-    trainInputTensor = join(trainInput):contiguous()
+    
+    
+    local shape = torch.totable(trainInput[1]:size())
+    trainInputTensor = torch.cat(trainInput, 1):view(-1, unpack(shape)):contiguous()
     trainTargetTensor = torch.ByteTensor(trainTarget):contiguous()
-    valInputTensor = join(valInput):contiguous()
+    valInputTensor = torch.cat(valInput, 1):view(-1, unpack(shape)):contiguous()
     valTargetTensor = torch.ByteTensor(valTarget):contiguous()
 
     trainData = {

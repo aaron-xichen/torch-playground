@@ -10,7 +10,7 @@ function Trainer:__init(model, criterion, optimState, opt, trainDataLoader, valD
 
     self.params, self.gradParams = self.model:parameters()
     self.optimStates = {}
-    
+
     -- for different learning rate
     for i=1, #self.params do
         table.insert(self.optimStates,
@@ -24,24 +24,31 @@ function Trainer:__init(model, criterion, optimState, opt, trainDataLoader, valD
             }
         )
     end
-    
+
     self.trainDataLoader = trainDataLoader
     self.valDataLoader = valDataLoader
 end
 
 function Trainer:getBestStat()
-    keys = {'bestHitAll', 'bestHitOne', 'bestTop1', 'bestTop3', 'bestLoss'}
+    keys = {'bestHitEach', 'bestHitAll', 'bestHitOne', 'bestTop1', 'bestLoss'}
     vals = {-math.huge, -math.huge, -math.huge, -math.huge, math.huge}
     return keys, vals
 end
 
 function Trainer:train(epoch)
-    for i=1, #self.params-2 do
-        self.optimStates[i].learningRate = self:learningRate(epoch) * self.opt.lrRatio
+    assert(#self.params % 2 == 0, "Error")
+    local parametricLayers = #self.params / 2
+    print("Finetuning last " .. self.opt.last .. " layers")
+    for i=1, parametricLayers-self.opt.last do
+        self.optimStates[2*i-1].learningRate = self:learningRate(epoch) * self.opt.lrRatio -- for W
+        self.optimStates[2*i].learningRate = 2 * self:learningRate(epoch) * self.opt.lrRatio -- for b
     end
-    self.optimStates[#self.params-1].learningRate = self:learningRate(epoch) -- for W
-    self.optimStates[#self.params].learningRate = 2 * self:learningRate(epoch) -- for b
     
+    for i=parametricLayers-self.opt.last+1, parametricLayers do
+        self.optimStates[2*i-1].learningRate = self:learningRate(epoch) -- for W
+        self.optimStates[2*i].learningRate = 2 * self:learningRate(epoch) -- for b
+    end
+
 
     local size = self.trainDataLoader:size()
     local hitAllSum, hitOneSum, lossSum = 0.0, 0.0, 0.0
@@ -49,16 +56,19 @@ function Trainer:train(epoch)
 
     local N = 0
 
-    print(('=> Training epoch: #%d, LR-Former, %.3e, LR-Last: %.3e')
-        :format(epoch, self:learningRate(epoch) * self.opt.lrRatio, self:learningRate(epoch)))
+    local lrFormer = self:learningRate(epoch) * self.opt.lrRatio
+    local lrLatter = self:learningRate(epoch)
+    print(('=> Training epoch: #%d, LR-Former, %.3e, LR-Last: %.3e'):format(epoch, lrFormer, lrLatter))
     self.model:training()
 
     local timer = torch.Timer()
     for n, sample in self.trainDataLoader:nextBatch() do
         local dataTime = timer:time().real
         timer:reset()
-        
+
         self:copyInputs(sample)
+        --print("data", torch.mean(self.input:view(self.opt.batchSize, 3, -1), 3))
+
         local output = self.model:forward(self.input)
         local loss = self.criterion:forward(self.model.output, self.target)
 
@@ -73,8 +83,8 @@ function Trainer:train(epoch)
             end
             optim.sgd(feval, self.params[i], self.optimStates[i])
         end
-        
-        local hitAll, hitOne, individual = self:computeScore(output:float(), self.target:int(), 1)
+
+        local _, hitAll, hitOne, _, individual = self:computeScore(output:float(), self.target:int(), 1)
         hitAllSum = hitAllSum + hitAll
         hitOneSum = hitOneSum + hitOne
         if not individualSum then
@@ -96,12 +106,12 @@ function Trainer:train(epoch)
 
         timer:reset()
     end
-    
+
     local trainHitAll = hitAllSum / N
     local trainHitOne = hitOneSum / N
     local trainLoss = lossSum / N
     local trainIndividual = torch.mean(individualSum, 1):float()
-    print((' | Train Done, hitAllAvg %3.3f, hitOneAvg: %3.3f, lossAvg: %1.4f'):format(trainHitAll, trainHitOne, trainLoss))
+    print((' | Train Done, hitAllAvg: %3.3f, hitOneAvg: %3.3f, lossAvg: %1.4f'):format(trainHitAll, trainHitOne, trainLoss))
     local info = ' `-> IndividualAvg:'
     for i=1, trainIndividual:nElement() do
         info = info .. ' ' .. ('%3.3f'):format(trainIndividual:squeeze()[i])
@@ -112,7 +122,8 @@ end
 function Trainer:val()
     local size = self.valDataLoader:size()
     local nCrops = self.opt.tenCrop and 10 or 1
-    local hitAllSum, hitOneSum, lossSum, top1Sum, top3Sum = 0.0, 0.0, 0.0, 0.0, 0.0
+
+    local hitEachSum, hitAllSum, hitOneSum, top1Sum, lossSum = 0.0, 0.0, 0.0, 0.0, 0.0
     local individualSum = nil
 
     local N = 0
@@ -121,19 +132,19 @@ function Trainer:val()
     cost_time = {}
     for n, sample in self.valDataLoader:nextBatch() do
         self:copyInputs(sample)
-        
+
         timer:reset()
         local output = self.model:forward(self.input)
         local testTime = timer:time().real
         table.insert(cost_time, testTime)
         local loss = self.criterion:forward(self.model.output, self.target)
 
-        local hitAll, hitOne, individual, top1, top3 = self:computeScore(output:float(), self.target:int(), nCrops)
+        local hitEach, hitAll, hitOne, top1, individual = self:computeScore(output:float(), self.target:int(), nCrops)
 
+        hitEachSum = hitEachSum + hitEach
         hitAllSum = hitAllSum + hitAll
         hitOneSum = hitOneSum + hitOne
         top1Sum = top1Sum + top1
-        top3Sum = top3Sum + top3
         lossSum = lossSum + loss
         if not individualSum then
             individualSum = individual
@@ -142,28 +153,27 @@ function Trainer:val()
         end
 
         N = N + 1
-        print((' | Val [%d/%d] hitAll: %3.3f, hitOne: %3.3f, top1: %3.3f, top3: %3.3f, loss: %1.4f, fps: %3.3f')
-            :format(n, size, hitAll, hitOne, top1, top3, loss, self.opt.batchSize / testTime))
+        print((' | Val [%d/%d] hitEach: %3.3f, hitAll: %3.3f, hitOne: %3.3f, top1: %3.3f, loss: %1.4f, fps: %3.3f')
+            :format(n, size, hitEach, hitAll, hitOne, top1, loss, self.opt.batchSize / testTime))
     end
-    
+
+    local valHitEach = hitEachSum / N
     local valHitAll = hitAllSum / N
     local valHitOne = hitOneSum / N
     local valTop1 = top1Sum / N
-    local valTop3 = top3Sum / N
     local valLoss = lossSum / N
     local valIndividual = torch.mean(individualSum, 1):float()
     local fps = self.opt.batchSize / torch.mean(torch.Tensor(cost_time))
-    
-    print((' * Val Done, hitAllAvg %3.3f, hitOneAvg: %3.3f, top1Avg: %3.3f, top3Avg: %3.3f, lossAvg: %1.4f, fpsAvg: %3.1f')
-        :format(valHitAll, valHitOne, valTop1, valTop3, valLoss, fps))
+
+    print((' * Val Done, hitEachAvg: %3.3f, hitAllAvg: %3.3f, hitOneAvg: %3.3f, top1Avg: %3.3f, lossAvg: %1.4f, fpsAvg: %3.1f')
+        :format(valHitEach, valHitAll, valHitOne, valTop1, valLoss, fps))
     local info = ' `-> IndividualAvg:'
     for i=1, valIndividual:nElement() do
         info = info .. ' ' .. ('%3.3f'):format(valIndividual:squeeze()[i])
     end
     print(info)
-    
-    --keys = {'hitAll', 'hitOne', 'top1', 'top3', 'loss'}
-    vals = {valHitAll, valHitOne, valTop1, valTop3, valLoss}
+
+    vals = {valHitEach, valHitAll, valHitOne, valTop1, valLoss}
     return vals
 end
 
@@ -174,16 +184,16 @@ function Trainer:computeScore(output, target, nCrops)
     local predict = torch.ge(output, self.opt.threadshold):int()
     local positive = torch.eq(target, 1):int()
 
+    local hitEach = torch.mean(torch.eq(predict, target):float())
     local hitAll = torch.mean(torch.eq(torch.sum(torch.eq(predict, target):int(), 2), self.opt.nClasses):float())
     local hitOne = torch.mean(torch.ge(torch.sum(torch.cmul(predict, positive), 2), 1):float()) 
     local individual = torch.mean(torch.eq(predict, target):float(), 1)
 
     local _, sortedPrediction = output:float():sort(2, true)
-    local sortedTarget = target:gather(2, sortedPrediction)
-    
+    local sortedTarget = target:gather(2, sortedPrediction)   
     local top1 = torch.mean(sortedTarget:narrow(2, 1, 1):float())
-    local top3 = torch.mean(torch.ge(torch.sum(sortedTarget:narrow(2, 1, 3), 2), 1):float())
-    return hitAll * 100, hitOne * 100, individual * 100, top1 * 100, top3 *  100
+
+    return hitEach*100, hitAll*100, hitOne*100, top1*100, individual*100
 end
 
 function Trainer:copyInputs(sample)
@@ -197,7 +207,7 @@ function Trainer:copyInputs(sample)
 end
 
 function Trainer:learningRate(epoch)
-    local decay = epoch>= 175 and 3 or epoch >= 150 and 2 or epoch >=100 and 1 or 0
+    local decay = epoch>= 40 and 3 or epoch >= 30 and 2 or epoch >=15 and 1 or 0
     return self.opt.LR * math.pow(0.1, decay)
 end
 
