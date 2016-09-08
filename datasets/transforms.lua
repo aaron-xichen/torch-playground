@@ -20,7 +20,7 @@ end
 function M.Cast(factor)
     if factor > 1.0 then
         return function(input)
-            return input:int():float()
+            return input:round():float()
         end
     else
         return function(input)
