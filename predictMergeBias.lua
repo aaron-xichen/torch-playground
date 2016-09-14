@@ -61,7 +61,6 @@ for i=1,#modelcpu do
 
         local weight2 = fixedPoint(2^shiftTable[i][1] * weight, 1, 7)
         cpuFixed:get(i).weight:copy(weight2)
-
     end
 
     if modelcpu:get(i).bias then
@@ -76,12 +75,13 @@ for i=1,#modelcpu do
         local bias2 = torch.round((fixedPoint(2^shiftTable[i][2] * bias, 1, 7) * 2 ^shiftTable[i][4]))
         if shiftTable[i][4] < 0 then
         bias2:clamp(-2^nbit+1, 2^nbit-1)
-    end
+        end
         ]]--
 
         -- clip version
-        local bias2 = fixedPoint(2^shiftTable[i][2] * bias, 1, 7) * 2 ^shiftTable[i][4]
-
+        -- local bias2 = fixedPoint(2^shiftTable[i][2] * bias, 1, 7) * 2 ^shiftTable[i][4]
+        local bias2 = fixedPoint(2^shiftTable[i][2] * bias, 1, 7)
+        
         cpuFixed:get(i).bias:copy(bias2)
     end
 
@@ -156,6 +156,11 @@ for i=1, #cpuFixed do
         for i=1, biasFixed:nElement() do
             biasWriter:write(struct.pack('<i1', biasFixed[i]))
         end
+        
+        -- shift bias
+        local biasShiftTo = cpuFixed:get(i).bias:float() * 2 ^shiftTable[i][4]
+        cpuFixed:get(i).bias:copy(biasShiftTo:int())
+        
         weightWriter:close()
         biasWriter:close()
     end

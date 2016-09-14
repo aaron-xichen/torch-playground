@@ -46,6 +46,7 @@ function M.option()
     ---------- Model options ----------------------------------
     cmd:option('-netType',      'baseline', 'Model name')
     cmd:option('-device',       'gpu',     'GPU or CPU mode')
+    cmd:option('-debug',       'false',   'Whether to print the info for debuging')
     cmd:text()
     return cmd
 end
@@ -78,6 +79,8 @@ function M.parse(cmd, arg)
     end
     
     assert(opt.dataset ~= 'none', 'Dataset required')
+ 
+    opt.debug = opt.debug ~= 'false'
     return opt
 end
 

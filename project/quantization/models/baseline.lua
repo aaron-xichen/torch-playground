@@ -31,6 +31,7 @@ local function createModel(opt)
         end
     end
 
+    
     -- remove softmax for efficiency
     local lastLayerName = torch.typename(model:get(#model))
     if lastLayerName == 'nn.SoftMax' or lastLayerName == 'cudnn.SoftMax' then
@@ -39,7 +40,7 @@ local function createModel(opt)
             model:remove(#model)
         end
     end
-
+    
     -- remove inplace
     for i=1, #model do
         if model:get(i).inplace then

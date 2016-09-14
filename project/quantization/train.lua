@@ -117,9 +117,9 @@ end
 
 function Trainer:quantizationForward()
     if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
-        utee.quantizationForward(self.model, self.input:double(), self.opt.actNBits)
+        utee.quantizationForward(self.model, self.input:double(), self.opt.actNBits, self.opt.debug)
     else 
-        utee.quantizationForward(self.model, self.input, self.opt.actNBits)
+        utee.quantizationForward(self.model, self.input, self.opt.actNBits, self.opt.debug)
     end
 end
 
@@ -148,8 +148,8 @@ function Trainer:val()
             shiftTable[k] = {v.weightShiftBits, v.biasShiftBits, v.actShiftBits}
         end
     end
-    print("Saving shift info to " .. self.opt.shiftInfoSavePath)
-    torch.save(self.opt.shiftInfoSavePath, shiftTable)
+    --print("Saving shift info to " .. self.opt.shiftInfoSavePath)
+    --torch.save(self.opt.shiftInfoSavePath, shiftTable)
 
     -- forward
     for n, sample in self.valDataLoader:run() do

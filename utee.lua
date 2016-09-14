@@ -177,7 +177,7 @@ M.analyzeAct = analyzeAct
 
 -- forward with quantization
 local quantizationForward
-quantizationForward = function(m, input, actNBits)
+quantizationForward = function(m, input, actNBits, debug)
     local layerName = torch.typename(m)
     local output
     if m.modules then
@@ -197,11 +197,15 @@ quantizationForward = function(m, input, actNBits)
     else
         output = m:forward(input)
         if m.actShiftBits then
-            local outputTmp1 = output:float()
-            print(outputTmp1:sum(), outputTmp1:min(), outputTmp1:max())
+            if debug then
+                local outputTmp1 = output:float()
+                print(outputTmp1:sum(), outputTmp1:min(), outputTmp1:max())
+            end
             output:copy(2^-m.actShiftBits * M.quantization(output * 2^m.actShiftBits, 1, actNBits-1))
-            local outputTmp2 = output:float()
-            print(outputTmp2:sum(), outputTmp2:min(), outputTmp2:max())
+            if debug then
+                local outputTmp2 = output:float()
+                print(outputTmp2:sum(), outputTmp2:min(), outputTmp2:max())
+            end
         end
     end
     return output
