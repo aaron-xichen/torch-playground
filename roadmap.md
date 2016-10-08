@@ -43,3 +43,4 @@
     - Deep Learning with Limited Numerical Precision [ Suyog Gupta, Ankur Agrawal, IBM, 2015.02.09] {随机rounding技巧，CIFAR10上16bit+16bit+16bit复现正确率}
     - Training deep neural networks with low precision multiplications [Matthieu Courbariaux, Yoshua Bengio, ICLR 2015 Workshop] {CIFAR10上10bit+10bit+12bit复现正确率}
     - DoReFa-Net: Training Low Bitwidth Convolutional Neural Networks with Low Bitwidth Gradients [Shuchang Zhou, Zekun Ni, 2016.06.20] {1bit-2bit-4bit, 第一层和最后一层没有量化，ImageNet上掉8.8%}
+    - Quantized Neural Networks: Training Neural Networks with Low Precision Weights and Activations [Itay Hubara, Matthieu Courbariaux, 2016.09.22]{1bit-2bit-6bit，ImageNet上超过DoReFa 0.33%}
