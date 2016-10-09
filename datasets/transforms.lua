@@ -29,6 +29,7 @@ function M.Cast(factor)
     end
 end
 
+-- return function
 function M.ColorNormalize(meanstd)
     return function(img)
         img = img:clone()

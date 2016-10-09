@@ -9,7 +9,7 @@ local SBatchNorm = nn.SpatialBatchNormalization
 local function createModel(opt)
     local model
     -- load torch model first if exists
-    if  paths.filep(opt.torchModelPath) then
+    if paths.filep(opt.torchModelPath) then
         print("loading torch model from " .. opt.torchModelPath)
         model = torch.load(opt.torchModelPath)
     else
@@ -21,12 +21,19 @@ local function createModel(opt)
     end
 
     if opt.swapChannel then
-        print("Exchanging the first kernel order from BGR to RGB")
         for i=1, #model do
             layerName = torch.typename(model:get(i))
-            if layerName == 'nn.SpatialConvolution' or layerName == 'cudnn.SpatialConvolution' then
+            local m = model:get(i)
+            if layerName == 'nn.SpatialConvolution' 
+                or layerName == 'nn.SpatialConvolutionMM'
+                or layerName == 'cudnn.SpatialConvolution' then
+                if #m.weight:size() ~= 4 then
+                    print("Reshape nn.SpatialConvolutionMM")
+                    m.weight = torch.reshape(m.weight, m.nOutputPlane, m.nInputPlane, m.kH, m.kW)
+                end
+                print("Exchanging the first kernel order from BGR to RGB")
                 print("- Find " .. layerName .. ', exchange it')
-                weight = model:get(i).weight
+                weight = m.weight
                 tmp = weight[{{}, {1}, {}, {}}]:clone()
                 weight[{{}, {1}, {}, {}}] = weight[{{}, {3}, {}, {}}]:clone()
                 weight[{{}, {3}, {}, {}}] = tmp
@@ -43,7 +50,20 @@ local function createModel(opt)
             model:remove(#model)
         end
     end
+    
+    -- remove the last block
+    local lastLayerName = torch.typename(model:get(#model))
+    if lastLayerName == 'nn.Linear' then
+        if opt.testOnly then
+            print(("Removing last layer %s"):format(lastLayerName))
+            model:remove(#model)
+            model:remove(#model)
+            model:remove(#model)
+        end
+    end
+    print(model)
 
+    
     -- remove inplace
     for i=1, #model do
         if model:get(i).inplace then

@@ -32,7 +32,7 @@ function M.option()
     ------------- Data options ------------------------
     cmd:option('-data',              '/work/shadow/',   'imagenet data path')
     cmd:option('-dataset',            'none',       'Dataset want to load')
-    cmd:option('-nThreads',        4, 'number of data loading threads')
+    cmd:option('-nThreads',        1, 'number of data loading threads')
     ------------- Training options --------------------
     cmd:option('-nEpochs',         1,       'Number of total epochs to run')
     cmd:option('-batchSize',       32,      'mini-batch size (1 = pure stochastic)')
@@ -47,6 +47,7 @@ function M.option()
     cmd:option('-netType',      'baseline', 'Model name')
     cmd:option('-device',       'gpu',     'GPU or CPU mode')
     cmd:option('-debug',       'false',   'Whether to print the info for debuging')
+    cmd:option('-swapChannel',  'false',   'Swap the first convolution kernel')
     cmd:text()
     return cmd
 end
@@ -81,6 +82,7 @@ function M.parse(cmd, arg)
     assert(opt.dataset ~= 'none', 'Dataset required')
  
     opt.debug = opt.debug ~= 'false'
+    opt.swapChannel = opt.swapChannel ~= 'false'
     return opt
 end
 
