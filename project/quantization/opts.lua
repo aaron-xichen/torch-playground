@@ -11,6 +11,7 @@ function M.option(cmd)
     cmd:option('-collectNSamples',  10,      'Number of samples to collect')
     cmd:option('-isQuantizeBN',  'true',      'Whether to quantize BN')
     cmd:option('-shiftInfoSavePath', 'shiftInfo.t7', 'Save path of shift bits, including weights, bias and activation')
+    cmd:option('-adderMaxBitWidth',  32,  'Max bitwidth for adder')
     cmd:text()
     return cmd
 end

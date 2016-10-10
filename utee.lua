@@ -175,6 +175,46 @@ analyzeAct = function(m, input, opt)
 end 
 M.analyzeAct = analyzeAct
 
+
+-- analyze the activation dynamically
+function M.analyzeActDynamic(model, input, opt)
+    local decPosRaw = 0
+    local decPosSave = 0
+    local maxBitWidth = opt.adderMaxBitWidth
+    
+    for i=1, #model do
+        if i == 1 then
+            ipt = input
+        else
+            ipt = model:get(i-1).output
+        end
+        local m = model:get(i)
+        local output = m:forward(ipt)
+        if m.weight and m.bias then
+            local actShiftBits = -torch.ceil(torch.log(torch.max(torch.abs(output))) / torch.log(2))
+            local weightShiftBits = m.weightShiftBits
+            local bitwidth = -(decPosSave - 7 - weightShiftBits + actShiftBits) - 7 + 8 + 1
+            if bitwidth > maxBitWidth then
+                print("ops", i, bitwidth, maxBitWidth)
+                actShiftBits = -decPosSave + weightShiftBits - maxBitWidth + 9
+            end
+            
+            
+            m.output:copy(2^-actShiftBits * M.quantization(m.output * 2^actShiftBits, 1, opt.actNBits-1))
+
+            if not m.actShiftBits then
+                m.actShiftBits = actShiftBits
+            else
+                m.actShiftBits = math.min(m.actShiftBits, actShiftBits)
+            end        
+            decPosRaw = decPosSave - 7 - weightShiftBits
+            decPosSave = - actShiftBits - 7
+            
+        end
+    end
+end
+
+
 -- forward with quantization
 local quantizationForward
 quantizationForward = function(m, input, actNBits, debug)

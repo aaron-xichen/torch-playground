@@ -59,8 +59,6 @@ function Trainer:quantizeParam()
                         bias:copy(2^-biasShiftBits * utee.quantization(bias * 2^biasShiftBits, 1, paramNBits-1))
                     end
 
-                    --print("setting bias to zero")
-                    --bias:zero()
                     print(layerName, self.orders[i].weightShiftBits, self.orders[i].biasShiftBits)
                 end
             end
@@ -115,6 +113,38 @@ function Trainer:analyzeAct()
     end
 end
 
+function Trainer:analyzeActDynamic()
+    if self.opt.actNBits ~= -1 then
+        print("=> Analyzing activation distribution dynamic")
+        if self.opt.shiftInfoTable then
+            for i=1, #self.orders do
+                if self.opt.shiftInfoTable[i] then
+                    self.orders[i].actShiftBits = self.opt.shiftInfoTable[i][3]
+                end
+            end
+        else
+            for n, sample in self.valDataLoader:run() do
+                self:copyInputs(sample)
+                utee.analyzeActDynamic(self.model, self.input, self.opt)
+                if n >= self.opt.collectNSamples then
+                    self.valDataLoader:reset()
+                    break
+                end
+            end
+        end
+        
+        --[[
+        for i=1, #self.orders do
+            if self.orders[i].actShiftBits then
+                local layerName = torch.typename(self.orders[i])
+                print(layerName, self.orders[i].actShiftBits)
+            end
+        end
+        ]]--
+        print('=> Analyzing done!')
+    end
+end
+
 function Trainer:quantizationForward()
     if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
         utee.quantizationForward(self.model, self.input:double(), self.opt.actNBits, self.opt.debug)
@@ -139,7 +169,7 @@ function Trainer:val()
 
     self:quantizeParam()
     self:castTensorType()
-    self:analyzeAct()
+    self:analyzeActDynamic()
 
     shiftTable = {}
     for k, v in pairs(self.orders) do
@@ -148,8 +178,8 @@ function Trainer:val()
             shiftTable[k] = {v.weightShiftBits, v.biasShiftBits, v.actShiftBits}
         end
     end
-    --print("Saving shift info to " .. self.opt.shiftInfoSavePath)
-    --torch.save(self.opt.shiftInfoSavePath, shiftTable)
+    print("Saving shift info to " .. self.opt.shiftInfoSavePath)
+    torch.save(self.opt.shiftInfoSavePath, shiftTable)
 
     -- forward
     for n, sample in self.valDataLoader:run() do
