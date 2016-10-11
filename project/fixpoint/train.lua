@@ -20,78 +20,36 @@ end
 
 function Trainer:fillParamInt32()
     print('=> Filling prameters in INT32 format')  
-    local winShiftBits = 0
-    local decPosRaw = 0
-    local decPosSave = 0
-    self.opt.winShiftTable = {}
-    self.opt.decPosRawTable = {}
-    self.opt.decPosSaveTable = {}
-    self.opt.biasAlignTable = {}
 
     for i=1, #self.model do
         if self.model:get(i).weight then
+            local meta = self.opt.metaTable[i]
+            local config = self.opt.bitWidthConfig[i]
             local weight = self.model:get(i).weight:clone()
             local bias = self.model:get(i).bias:clone()
 
-            local weightShiftBits = self.opt.shiftTable[i][1]
-            local biasShiftBits = self.opt.shiftTable[i][2]
-            local actShiftBits = self.opt.shiftTable[i][3]
+            local weightShiftBits, biasShiftBits, biasAlignShiftBits = meta[1], meta[2], meta[4]
+            local weightBitWidth, biasBitWidth = config[1], config[2]
 
             -- fixed point weight
-            local weight1 = utee.fixedPoint(weight * 2^weightShiftBits, 1, 7)
+            local weight1 = utee.fixedPoint(weight * 2^weightShiftBits, 1, weightBitWidth-1)
             self.model:get(i).weight:copy(weight1)
 
-            -- compute shift bits and decimal position
-            decPosRaw = decPosSave - 7 - weightShiftBits
-            winShiftBits = - (decPosRaw + actShiftBits) - 7
-            biasAlignShiftBits = - decPosSave - biasShiftBits + weightShiftBits
-            decPosSave = - actShiftBits - 7
-
             -- fixed point bias and align
-            local bias1 = utee.fixedPoint(2^biasShiftBits * bias, 1, 7) * 2^biasAlignShiftBits
+            local bias1 = utee.fixedPoint(bias * 2^biasShiftBits, 1, biasBitWidth-1) * 2^biasAlignShiftBits
             self.model:get(i).bias:copy(bias1)
-
-            --print("setting bias to zero")
-            --self.model:get(i).bias:zero()
-            
-            -- save window shift bits
-            self.opt.winShiftTable[i] = winShiftBits
-            self.opt.decPosRawTable[i] = decPosRaw
-            self.opt.decPosSaveTable[i] = decPosSave
-            self.opt.biasAlignTable[i] = biasAlignShiftBits
-
         end
     end
-
-    -- save meta info to disk
-    metaInfo = {}
-    for k, v in pairs(self.opt.winShiftTable) do
-        metaInfo[k] = {}
-        table.insert(metaInfo[k], self.opt.shiftTable[k][1]) -- weight
-        table.insert(metaInfo[k], self.opt.shiftTable[k][2]) -- bias
-        table.insert(metaInfo[k], self.opt.shiftTable[k][3]) -- activation
-        table.insert(metaInfo[k], self.opt.biasAlignTable[k]) -- biasAlign
-        table.insert(metaInfo[k], self.opt.winShiftTable[k]) -- window shift
-        table.insert(metaInfo[k], self.opt.decPosSaveTable[k]) -- decPosSave
-        table.insert(metaInfo[k], self.opt.decPosRawTable[k]) -- decPosRaw
-        print(k, metaInfo[k][1], metaInfo[k][2], metaInfo[k][3], metaInfo[k][4], metaInfo[k][5], metaInfo[k][6], metaInfo[k][7])
-    end
-
-    print('Saving meta info to ' .. self.opt.metaInfoPath)
-    torch.save(self.opt.metaInfoPath, metaInfo)
 end
 
 function Trainer:castToInt32Type()
     for i=1, #self.model do
         self.model:get(i):type('torch.IntTensor')
-        if self.model:get(i).weight then
-            print(torch.typename(self.model:get(i).weight))
-        end
     end
+    print("Tensor type: ", torch.typename(self.model:get(1).weight))
 end
 
 function Trainer:forwardInt32()
-    local decimalPosition = 0
     for i=1, #self.model do
         local layerName = torch.typename(self.model:get(i))
         if i == 1 then
@@ -99,32 +57,41 @@ function Trainer:forwardInt32()
         else
             self.model:get(i):forward(self.model:get(i-1).output)
         end
-        if self.opt.winShiftTable[i] then
-            print(i)
-            local output = self.model:get(i).output
-            local outputTmp1 = output:float() * 2^self.opt.decPosRawTable[i]
-            print(outputTmp1:sum(), outputTmp1:min(), outputTmp1:max())
+        local meta = self.opt.metaTable[i]
+        if meta then
+            local winShiftBits, decPosSave, decPosRaw = meta[5], meta[6], meta[7]
+            local actBitWidth = self.opt.bitWidthConfig[i][3]
 
-            local shiftLeft = bit.lshift(0x7f, self.opt.winShiftTable[i])
-            local overflow = bit.lshift(0x80, self.opt.winShiftTable[i]) 
-            local roundBit = bit.lshift(0x1, self.opt.winShiftTable[i] - 1)
+            local output = self.model:get(i).output
+            --[[
+            local outputTmp1 = output:float() * 2^decPosRaw
+            print(outputTmp1:sum(), outputTmp1:min(), outputTmp1:max())
+            ]]--
+
+            local maxVal = 2^(actBitWidth-1)-1
+            local shiftLeft = bit.lshift(maxVal, winShiftBits)
+            local overflow = bit.lshift(maxVal+1, winShiftBits) 
+            local roundBit = bit.lshift(0x1, winShiftBits-1)
             local sign = torch.sign(output)
 
             output:abs():apply(
                 function(x)
                     if bit.band(x, overflow) ~= 0 then -- overflow, return max
-                        return 127
+                        return maxVal
                     elseif bit.band(x, roundBit) ~= 0 then -- ceil
-                        return math.min(bit.rshift(bit.band(x, shiftLeft), self.opt.winShiftTable[i]) + 1, 127)
+                        return math.min(bit.rshift(bit.band(x, shiftLeft), winShiftBits) + 1, maxVal)
                     else -- floor
-                        return bit.rshift(bit.band(x, shiftLeft), self.opt.winShiftTable[i])
+                        return bit.rshift(bit.band(x, shiftLeft), winShiftBits)
                     end
                 end
             )
             output:cmul(sign)
 
-            local outputTmp2 = output:float() * 2^self.opt.decPosSaveTable[i]
+            
+            --[[
+            local outputTmp2 = output:float() * 2^decPosSave
             print(outputTmp2:sum(), outputTmp2:min(), outputTmp2:max())
+            ]]--
         end
 
     end
@@ -138,12 +105,15 @@ function Trainer:val()
 
     self:fillParamInt32()
     self:castToInt32Type()
-    
+
     local totalTimer = torch.Timer()
     local timer = torch.Timer()
+    timer = torch.Timer()
     for n, sample in self.valDataLoader:run() do
-        print("saving to input.t7")
-        torch.save('input.t7', sample.input)
+        if N == 0 then
+            print("saving to input.t7")
+            torch.save('input.t7', sample.input)
+        end
         print('data: ', torch.sum(torch.abs(sample.input)))
         timer:reset()
         self:copyInputs(sample)
@@ -156,8 +126,13 @@ function Trainer:val()
         N = N + 1
 
         print((' | Val [%d/%d] Top1Err: %7.5f, Top5Err: %7.5f, cost: %3.3fs'):format(n, size, top1, top5, timer:time().real))
+        if self.opt.stopNSamples ~= -1 and N >= self.opt.stopNSamples then
+            break
+        end
     end
-
+    elapse = timer:time().real
+    print(("Time elapsed: %3.3f, FPS: %2.2f"):format(elapse, N/elapse))
+    
     print((' * Val Done, Top1Err: %7.3f  Top5Err: %7.3f, cost: %3.3fs'):format(top1Sum / N, top5Sum / N, totalTimer:time().real))
     vals = {top1Sum / N, top5Sum / N}
     return vals

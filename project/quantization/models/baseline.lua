@@ -50,8 +50,9 @@ local function createModel(opt)
             model:get(i).inplace = false
         end
     end
-
+        
     model:clearState()
+    print(model)
     return model
 end
 

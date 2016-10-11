@@ -175,13 +175,11 @@ analyzeAct = function(m, input, opt)
 end 
 M.analyzeAct = analyzeAct
 
-
--- analyze the activation dynamically
 function M.analyzeActDynamic(model, input, opt)
     local decPosRaw = 0
     local decPosSave = 0
     local maxBitWidth = opt.adderMaxBitWidth
-    
+
     for i=1, #model do
         if i == 1 then
             ipt = input
@@ -191,31 +189,53 @@ function M.analyzeActDynamic(model, input, opt)
         local m = model:get(i)
         local output = m:forward(ipt)
         if m.weight and m.bias then
+            local config = opt.bitWidthConfig[i]
+            assert(config, ("Bit-width is missing in layer %d"):format(i))
+
             local actShiftBits = -torch.ceil(torch.log(torch.max(torch.abs(output))) / torch.log(2))
             local weightShiftBits = m.weightShiftBits
-            local bitwidth = -(decPosSave - 7 - weightShiftBits + actShiftBits) - 7 + 8 + 1
-            if bitwidth > maxBitWidth then
-                print("ops", i, bitwidth, maxBitWidth)
-                actShiftBits = -decPosSave + weightShiftBits - maxBitWidth + 9
-            end
-            
-            
-            m.output:copy(2^-actShiftBits * M.quantization(m.output * 2^actShiftBits, 1, opt.actNBits-1))
+            local weightBitWidth, actBitWidth = config[1], config[3]
+
+            m.output:copy(2^-actShiftBits * M.quantization(m.output * 2^actShiftBits, 1, actBitWidth-1))
 
             if not m.actShiftBits then
                 m.actShiftBits = actShiftBits
             else
                 m.actShiftBits = math.min(m.actShiftBits, actShiftBits)
-            end        
-            decPosRaw = decPosSave - 7 - weightShiftBits
-            decPosSave = - actShiftBits - 7
-            
+            end
         end
     end
 end
 
+-- forward with quantization directly
+function M.quantizationForwardDirectly(model, input, opt) 
+    local ipt
+    for i=1, #model do
+        if i == 1 then
+            ipt = input
+        else
+            ipt = model:get(i-1).output
+        end
+        local m = model:get(i)
+        local output = m:forward(ipt)
+        if m.actShiftBits then
+            local config = opt.bitWidthConfig[i]
+            assert(config, ("Bit-width is missing in layer %d"):format(i))
+            local actBitWidth = config[3]
+            if opt.debug then
+                local outputTmp1 = output:float()
+                print(outputTmp1:sum(), outputTmp1:min(), outputTmp1:max())
+            end
+            output:copy(2^-m.actShiftBits * M.quantization(output * 2^m.actShiftBits, 1, actBitWidth-1))
+            if opt.debug then
+                local outputTmp2 = output:float()
+                print(outputTmp2:sum(), outputTmp2:min(), outputTmp2:max())
+            end
+        end
+    end
+end
 
--- forward with quantization
+-- forward with quantization, handle skip connect
 local quantizationForward
 quantizationForward = function(m, input, actNBits, debug)
     local layerName = torch.typename(m)
@@ -299,5 +319,33 @@ function M.convertBias(rootPath, meanfilePath, mode)
     print("Saving new model to " .. savePath)
     torch.save(savePath, model)
 end
+
+function M.loadTxt(filePath)
+    assert(paths.filep(filePath), "File not found")
+    print(("Loading from %s"):format(filePath))
+    d = {}
+    for line in assert(io.open(filePath)):lines() do
+        fields = stringx.split(line)
+        k = tonumber(fields[1])
+        v = {}
+        for i=2, #fields do
+            table.insert(v, tonumber(fields[i]))
+        end
+        d[k] = v
+    end
+    return d
+end
+
+function M.saveTxt(filePath, d)
+    print(("Saving to %s"):format(filePath))
+    writer = io.open(filePath, 'w')
+    for k, v in pairs(d) do
+        local vStr = table.concat(v, " ")
+        local line = tostring(k) .. " " .. vStr .. "\n"
+        writer:write(line)
+    end
+    writer:close()
+end
+
 return M
 

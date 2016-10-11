@@ -4,20 +4,15 @@ local M = { }
 function M.option(cmd)
     cmd:text('Torch-7 Quantization Arguments Options:')
     cmd:option('-modelRoot',       'none',    'Externel model folder')
-    cmd:option('-convNBits',    -1,        'Number of bits for convolution parameters (including sign)')
-    cmd:option('-fcNBits',      -1,        'Number of bits for fc parameters (including sign)')
-    cmd:option('-actNBits',        -1,       'Number of bits for activation (including sign)')
-    cmd:option('-tensorType',     'float',   'Tensor type of layers')
     cmd:option('-collectNSamples',  10,      'Number of samples to collect')
-    cmd:option('-isQuantizeBN',  'true',      'Whether to quantize BN')
-    cmd:option('-shiftInfoSavePath', 'shiftInfo.t7', 'Save path of shift bits, including weights, bias and activation')
-    cmd:option('-adderMaxBitWidth',  32,  'Max bitwidth for adder')
+    cmd:option('-bitWidthConfigPath', 'none',  'Setting file path of bitwidth')
+    cmd:option('-metaTablePath', 'meta.config', 'weightShift, biasShift, actShift, biasAlign, winShift, decPosSave, decPosRaw')
     cmd:text()
     return cmd
 end
 
 function M.parse(cmd, opt)
-    -- model path
+    -- require model path
     if opt.modelRoot == 'none' then
         cmd:error('model root required')
     end
@@ -30,17 +25,14 @@ function M.parse(cmd, opt)
         opt.torchModelPath = opt.modelRoot .. '/modelCPU.t7'
     end
     
-    if paths.filep(opt.shiftInfoSavePath) then
-        print("Loading shift info table from " .. opt.shiftInfoSavePath)
-        opt.shiftInfoTable = torch.load(opt.shiftInfoSavePath)
+    -- require bit-width configuration
+    if opt.bitWidthConfigPath ~= 'none' then
+        opt.bitWidthConfig = utee.loadTxt(opt.bitWidthConfigPath)
     end
-    
-    if opt.tensorType ~= 'float' and opt.tensorType ~= 'double' then
-        cmd:error(('Unknown tensorType: %s'):format(opt.tensorType))
+    if paths.filep(opt.metaTablePath) then
+        opt.metaTable = utee.loadTxt(opt.metaTablePath)
+        opt.metaTableExist = true
     end
-    
-    opt.isQuantizeBN = opt.isQuantizeBN ~= 'false'
-    
     return opt
 end
 

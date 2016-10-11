@@ -13,152 +13,123 @@ end
 function Trainer:__init(model, criterion, optimState, opt, trainDataLoader, valDataLoader)
     self.model = model
     self.model:evaluate()
-    self.orders = utee.topologicalOrder(self.model)
     self.opt = opt
-
     self.trainDataLoader = trainDataLoader
     self.valDataLoader = valDataLoader
 end
 
 function Trainer:quantizeParam()
-    if self.opt.convNBits ~= -1 and self.opt.fcNBits ~= -1 then
-        print('=> Quantizing weights and bias') 
-        for i=1, #self.orders do
-            local weight = self.orders[i].weight
-            local bias = self.orders[i].bias
-            local layerName = torch.typename(self.orders[i])
-            if weight and bias then
-                if layerName ~= 'nn.SpatialBatchNormalization' or self.opt.isQuantizeBN then
-                    if self.opt.shiftInfoTable then
-                        self.orders[i].weightShiftBits = self.opt.shiftInfoTable[i][1]
-                        self.orders[i].biasShiftBits = self.opt.shiftInfoTable[i][2]
-                    else
-                        self.orders[i].weightShiftBits = -torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
-                        self.orders[i].biasShiftBits = -torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
-                    end
+    print('=> Quantizing weights and bias') 
+    print("Id\tname\tweight\tbias\tact")
+    for i=1, #self.model do
+        local m = self.model:get(i)
+        local layerName = torch.typename(m)
+        local weight = m.weight
+        local bias = m.bias
 
-                    local paramNBits
-                    if layerName == 'cudnn.SpatialConvolution' 
-                        or layerName == 'nn.SpatialConvolution' 
-                        or layerName == 'nn.SpatialConvolutionFixedPoint' 
-                        or layerName == 'nn.SpatialBatchNormalization' then
-                        paramNBits = self.opt.convNBits
-                    elseif layerName == 'nn.Linear' then
-                        paramNBits = self.opt.fcNBits
-                    else
-                        assert(nil, "Unknow layer type " .. layerName)
-                    end
-                    
-                    if torch.abs(weight):max() ~= 0  then
-                        local weightShiftBits = self.orders[i].weightShiftBits
-                        weight:copy(2^-weightShiftBits * utee.quantization(weight * 2^weightShiftBits, 1, paramNBits-1))
-                    end
-
-                    if torch.abs(bias):max() ~= 0 then
-                        local biasShiftBits = self.orders[i].biasShiftBits
-                        bias:copy(2^-biasShiftBits * utee.quantization(bias * 2^biasShiftBits, 1, paramNBits-1))
-                    end
-
-                    print(layerName, self.orders[i].weightShiftBits, self.orders[i].biasShiftBits)
-                end
+        if weight and bias then
+            local config = self.opt.bitWidthConfig[i]
+            assert(config, ("Bit-width is missing in layer %d"):format(i))
+            local weightBitWidth, biasBitWidth, actBitWidth = config[1], config[2], config[3]
+            if self.opt.metaTable then
+                m.weightShiftBits = self.opt.metaTable[i][1]
+                m.biasShiftBits = self.opt.metaTable[i][2]
+            else
+                m.weightShiftBits = -torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
+                m.biasShiftBits = -torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
             end
+
+            if torch.abs(weight):max() ~= 0  then
+                local weightShiftBits = m.weightShiftBits
+                weight:copy(2^-weightShiftBits * utee.quantization(weight * 2^weightShiftBits, 1, weightBitWidth-1))
+            end
+
+            if torch.abs(bias):max() ~= 0 then
+                local biasShiftBits = m.biasShiftBits
+                bias:copy(2^-biasShiftBits * utee.quantization(bias * 2^biasShiftBits, 1, biasBitWidth-1))
+            end
+
+            print(("%d\t%s\t%d\t%d\t%d"):format(i, layerName, weightBitWidth, biasBitWidth, actBitWidth))
+
         end
-        print(("=> Quantization Info, ConvParam: %d bits, FcParam: %d bits, Activation: %d bits")
-            :format(self.opt.convNBits, self.opt.fcNBits, self.opt.actNBits))
+
     end
+    print("<= Quantizing weights and bias done")
 end
 
 function Trainer:castTensorType()
-    for i=1, #self.orders do
-        if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
-            self.orders[i]:type('torch.DoubleTensor')
-        elseif self.opt.device == 'cpu' and self.opt.tensorType == 'float' then
-            self.orders[i]:type('torch.FloatTensor')
-        elseif self.opt.device == 'gpu' then
-            self.orders[i]:type('torch.CudaTensor')
-        end
-        if self.orders[i].weight then
-            print(torch.typename(self.orders[i].weight))
+    for i=1, #self.model do
+        if self.opt.device == 'cpu' then
+            self.model:get(i):type('torch.FloatTensor')
+        else
+            self.model:get(i):type('torch.CudaTensor')
         end
     end
+    print(("Tensor type %s"):format(torch.typename(self.model:get(1).weight)))
 end
 
-function Trainer:analyzeAct()
-    if self.opt.actNBits ~= -1 then
-        print("=> Analyzing activation distribution")
-        if self.opt.shiftInfoTable then
-            for i=1, #self.orders do
-                if self.opt.shiftInfoTable[i] then
-                    self.orders[i].actShiftBits = self.opt.shiftInfoTable[i][3]
-                end
+function Trainer:quantizeAct()
+    print("=> Analyzing activation distribution dynamic")
+    if self.opt.metaTable then
+        -- load from meta.config
+        for i=1, #self.model do
+            if self.opt.metaTable[i] then
+                self.model:get(i).actShiftBits = self.opt.metaTable[i][3]
             end
-        else
-            for n, sample in self.valDataLoader:run() do
-                self:copyInputs(sample)
-                utee.analyzeAct(self.model, self.input, self.opt)
-                if n >= self.opt.collectNSamples then
-                    self.valDataLoader:reset()
-                    break
-                end
+        end
+    else
+        self.opt.metaTable = {}
+        for n, sample in self.valDataLoader:run() do
+            self:copyInputs(sample)
+            -- fill m.actShiftBits field
+            utee.analyzeActDynamic(self.model, self.input, self.opt)
+            if n >= self.opt.collectNSamples then
+                self.valDataLoader:reset()
+                break
             end
         end
 
-        for i=1, #self.orders do
-            if self.orders[i].actShiftBits then
-                local layerName = torch.typename(self.orders[i])
-                print(layerName, self.orders[i].actShiftBits)
-            end
-        end
-        print('=> Analyzing done!')
-    end
-end
+        -- generate meta.config
+        local decPosRaw = 0
+        local decPosSave = 0
+        for i=1, #self.model do
+            local m = self.model:get(i)
+            if m.weight and m.bias then
+                local config = self.opt.bitWidthConfig[i]
+                assert(config, ("Bit-width is missing in layer %d"):format(i))
+                local weightBitWidth, biasBitWidth, actBitWidth = config[1], config[2], config[3]
+                local weightShiftBits = m.weightShiftBits
+                local biasShiftBits = m.biasShiftBits
+                local actShiftBits = m.actShiftBits
 
-function Trainer:analyzeActDynamic()
-    if self.opt.actNBits ~= -1 then
-        print("=> Analyzing activation distribution dynamic")
-        if self.opt.shiftInfoTable then
-            for i=1, #self.orders do
-                if self.opt.shiftInfoTable[i] then
-                    self.orders[i].actShiftBits = self.opt.shiftInfoTable[i][3]
-                end
-            end
-        else
-            for n, sample in self.valDataLoader:run() do
-                self:copyInputs(sample)
-                utee.analyzeActDynamic(self.model, self.input, self.opt)
-                if n >= self.opt.collectNSamples then
-                    self.valDataLoader:reset()
-                    break
-                end
+                decPosRaw = decPosSave -(weightBitWidth-1) - weightShiftBits
+                biasAlignShiftBits = -(biasBitWidth-1) - biasShiftBits - decPosRaw
+                decPosSave = -(actBitWidth-1) - actShiftBits 
+                winShiftBits = decPosSave - decPosRaw
+                
+                self.opt.metaTable[i] = {}
+                table.insert(self.opt.metaTable[i], weightShiftBits) -- weightShift
+                table.insert(self.opt.metaTable[i], biasShiftBits) -- biasShift
+                table.insert(self.opt.metaTable[i], actShiftBits) -- actShift
+                table.insert(self.opt.metaTable[i], biasAlignShiftBits) -- biasAlign
+                table.insert(self.opt.metaTable[i], winShiftBits) -- window shift
+                table.insert(self.opt.metaTable[i], decPosSave) -- decPosSave
+                table.insert(self.opt.metaTable[i], decPosRaw) -- decPosRaw
+
             end
         end
-        
-        --[[
-        for i=1, #self.orders do
-            if self.orders[i].actShiftBits then
-                local layerName = torch.typename(self.orders[i])
-                print(layerName, self.orders[i].actShiftBits)
-            end
-        end
-        ]]--
-        print('=> Analyzing done!')
     end
+
+    print('<= Analyzing activation distribution dynamic done')
 end
 
 function Trainer:quantizationForward()
-    if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
-        utee.quantizationForward(self.model, self.input:double(), self.opt.actNBits, self.opt.debug)
-    else 
-        utee.quantizationForward(self.model, self.input, self.opt.actNBits, self.opt.debug)
-    end
+    utee.quantizationForwardDirectly(self.model, self.input, self.opt)
 end
 
+
 function Trainer:manualForward()
-    if self.opt.device == 'cpu' and self.opt.tensorType == 'double' then
-        self.model:forward(self.input:double())
-    else 
-        self.model:forward(self.input)
-    end
+    self.model:forward(self.input)
 end
 
 function Trainer:val()
@@ -166,41 +137,51 @@ function Trainer:val()
     local nCrops = self.opt.tenCrop and 10 or 1
     local top1Sum, top5Sum = 0.0, 0.0
     local N = 0
-
-    self:quantizeParam()
-    self:castTensorType()
-    self:analyzeActDynamic()
-
-    shiftTable = {}
-    for k, v in pairs(self.orders) do
-        if v.weightShiftBits then
-            print(k, v.weightShiftBits, v.biasShiftBits, v.actShiftBits)
-            shiftTable[k] = {v.weightShiftBits, v.biasShiftBits, v.actShiftBits}
-        end
+    
+    --self:castTensorType()
+    local forwardFunc = nil
+    -- perform quantization
+    if self.opt.bitWidthConfig then
+        forwardFunc = self.quantizationForward
+        self:quantizeParam()
+        self:quantizeAct()
+    else
+        forwardFunc = self.manualForward
     end
-    print("Saving shift info to " .. self.opt.shiftInfoSavePath)
-    torch.save(self.opt.shiftInfoSavePath, shiftTable)
+    print(("Tensor type %s"):format(torch.typename(self.model:get(1).weight)))
+
+    -- print and save meta table
+    print("Id\tweightShift\tbiasShift\tactShift\tbiasAlign\twinShift\tdecPosSave\tdecPosRaw")
+    for k, v in pairs(self.opt.metaTable) do
+        local vStr = table.concat(v, "\t")
+        local line = tostring(k) .. "\t" .. vStr
+        print(line)
+    end
+    if not self.opt.metaTableExist then
+        utee.saveTxt(self.opt.metaTablePath, self.opt.metaTable)
+    end
 
     -- forward
+    timer = torch.Timer()
     for n, sample in self.valDataLoader:run() do
         self:copyInputs(sample)
         print('data: ', torch.sum(torch.abs(sample.input)))
-        if self.opt.actNBits == -1 then
-            self:manualForward()
-        else
-            self:quantizationForward()
-        end
+        forwardFunc(self)
 
         local top1, top5 = self:computeScore(self.model:get(#self.model).output, sample.target, nCrops)
         top1Sum = top1Sum + top1
         top5Sum = top5Sum + top5
         N = N + 1
+            
         print((' | Val [%d/%d] Top1Err: %7.5f, Top5Err: %7.5f'):format(n, size, top1, top5))
+        if self.opt.stopNSamples ~= -1 and N >= self.opt.stopNSamples then
+            break
+        end
     end
+    elapse = timer:time().real
+    print(("Time elapsed: %3.3f, FPS: %2.2f"):format(elapse, N/elapse))
 
     print((' * Val Done, Top1Err: %7.3f  Top5Err: %7.3f'):format(top1Sum / N, top5Sum / N))
-    print(("=> Quantization Info, ConvParam: %d bits, FcParam: %d bits, Activation: %d bits")
-        :format(self.opt.convNBits, self.opt.fcNBits, self.opt.actNBits))
     vals = {top1Sum / N, top5Sum / N}
     return vals
 end

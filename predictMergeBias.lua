@@ -2,6 +2,7 @@ require 'nn';
 require 'cutorch';
 require 'loadcaffe';
 require 'struct'
+local utee = require 'utee'
 
 torch.setdefaulttensortype('torch.FloatTensor')
 
@@ -41,46 +42,52 @@ function substitute(source)
     return target
 end
 
+-- pick the first image
 imgs = torch.load('input.t7'):int()[1]:view(1, 3, 224, 224)
 print('image range: ', torch.min(imgs), torch.max(imgs))
 
 -- weight, bias, output, biasAlign, winShift, docPosSave, docPosRaw
-shiftTable = torch.load('meta.t7')
+local metaTable = utee.loadTxt('meta.config')
+local bitWidthConfig = utee.loadTxt('bitsSetting.config')
 
 modelcpu = torch.load('/home/chenxi/modelzoo/vgg16/modelCPU.t7')
-
 modelcpu:evaluate()
-
 cpuFixed = modelcpu:clone()
+
 for i=1,#modelcpu do
+    local meta = metaTable[i]
+    local config = bitWidthConfig[i]
+    
     if modelcpu:get(i).weight then
+        local weightBitWidth, weightShiftBits = config[1], meta[1]
         local weight = modelcpu:get(i).weight:clone()
 
-        local weight1 = quantization(2^shiftTable[i][1] * weight, 1, 7) * 2^-shiftTable[i][1]
+        local weight1 = quantization(2^weightShiftBits * weight, 1, weightBitWidth-1) * 2^-weightShiftBits
         modelcpu:get(i).weight:copy(weight1)
 
-        local weight2 = fixedPoint(2^shiftTable[i][1] * weight, 1, 7)
+        local weight2 = fixedPoint(2^weightShiftBits * weight, 1, weightBitWidth-1)
         cpuFixed:get(i).weight:copy(weight2)
     end
 
     if modelcpu:get(i).bias then
+        local biasBitWidth, biasShiftBits = config[2], meta[2]
         local bias = modelcpu:get(i).bias:clone()
 
-        local bias1 = quantization(2^shiftTable[i][2] * bias, 1, 7) * 2^-shiftTable[i][2]
+        local bias1 = quantization(2^biasShiftBits * bias, 1, biasBitWidth-1) * 2^-biasShiftBits
         modelcpu:get(i).bias:copy(bias1)
 
         -- rounding version
         --[[
-        local nbit = math.max(math.min(shiftTable[i][4], 0) + 7, 0)
-        local bias2 = torch.round((fixedPoint(2^shiftTable[i][2] * bias, 1, 7) * 2 ^shiftTable[i][4]))
-        if shiftTable[i][4] < 0 then
+        local nbit = math.max(math.min(metaTable[i][4], 0) + 7, 0)
+        local bias2 = torch.round((fixedPoint(2^metaTable[i][2] * bias, 1, 7) * 2 ^metaTable[i][4]))
+        if metaTable[i][4] < 0 then
         bias2:clamp(-2^nbit+1, 2^nbit-1)
         end
         ]]--
 
         -- clip version
-        -- local bias2 = fixedPoint(2^shiftTable[i][2] * bias, 1, 7) * 2 ^shiftTable[i][4]
-        local bias2 = fixedPoint(2^shiftTable[i][2] * bias, 1, 7)
+        -- local bias2 = fixedPoint(2^metaTable[i][2] * bias, 1, 7) * 2 ^metaTable[i][4]
+        local bias2 = fixedPoint(2^biasShiftBits * bias, 1, biasBitWidth-1)
         
         cpuFixed:get(i).bias:copy(bias2)
     end
@@ -157,8 +164,8 @@ for i=1, #cpuFixed do
             biasWriter:write(struct.pack('<i1', biasFixed[i]))
         end
         
-        -- shift bias
-        local biasShiftTo = cpuFixed:get(i).bias:float() * 2 ^shiftTable[i][4]
+        -- shift bias after saving
+        local biasShiftTo = cpuFixed:get(i).bias:float() * 2 ^metaTable[i][4]
         cpuFixed:get(i).bias:copy(biasShiftTo:int())
         
         weightWriter:close()
@@ -200,8 +207,8 @@ for i=1, #modelcpu do
 
     local cpuFloatOutput = cpuFloat:get(i).output
     local cpuFixedOutput = cpuFixed:get(i).output
-    if shiftTable[i] then
-        local cpuFixedOutputTmp1 = cpuFixedOutput:float() * 2^shiftTable[i][7]
+    if metaTable[i] then
+        local cpuFixedOutputTmp1 = cpuFixedOutput:float() * 2^metaTable[i][7]
 
         -- save actPre value
         local actPrePath = paths.concat(subFolderName, 'actPre.bin')
@@ -213,27 +220,29 @@ for i=1, #modelcpu do
 
         print('flt: ', cpuFloatOutput:sum(), cpuFloatOutput:min(), cpuFloatOutput:max())
         print('fix: ', cpuFixedOutputTmp1:sum(), cpuFixedOutputTmp1:min(), cpuFixedOutputTmp1:max())
-
-        cpuFloatOutput:copy(quantization(2^shiftTable[i][3] * cpuFloatOutput, 1, 7) * 2 ^ -shiftTable[i][3])
-
-        local shiftLeft = bit.lshift(0x7f, shiftTable[i][5])
-        local overflow = bit.lshift(0x80, shiftTable[i][5]) 
-        local roundBit = bit.lshift(0x1, shiftTable[i][5] - 1)
+        
+        local actBitWidth = bitWidthConfig[i][3]
+        cpuFloatOutput:copy(quantization(2^metaTable[i][3] * cpuFloatOutput, 1, actBitWidth-1) * 2 ^ -metaTable[i][3])
+        
+        local maxVal = 2^(actBitWidth-1)-1
+        local shiftLeft = bit.lshift(maxVal, metaTable[i][5])
+        local overflow = bit.lshift(maxVal+1, metaTable[i][5]) 
+        local roundBit = bit.lshift(0x1, metaTable[i][5] - 1)
         local sign = torch.sign(cpuFixedOutput)
         cpuFixedOutput:abs():apply(
             function(x)
                 if bit.band(x, overflow) ~= 0 then  -- overflow, return max
-                    return 127
+                    return maxVal
                 elseif bit.band(x, roundBit) ~= 0 then -- ceil
-                    return math.min(bit.rshift(bit.band(x, shiftLeft), shiftTable[i][5]) + 1, 127)
+                    return math.min(bit.rshift(bit.band(x, shiftLeft), metaTable[i][5]) + 1, maxVal)
                 else -- floor
-                    return bit.rshift(bit.band(x, shiftLeft), shiftTable[i][5])
+                    return bit.rshift(bit.band(x, shiftLeft), metaTable[i][5])
                 end
             end
         )
         cpuFixedOutput:cmul(sign)
 
-        local cpuFixedOutputTmp2 = cpuFixedOutput:float() * 2^shiftTable[i][6]
+        local cpuFixedOutputTmp2 = cpuFixedOutput:float() * 2^metaTable[i][6]
 
         print('flt: ', cpuFloatOutput:sum(), cpuFloatOutput:min(), cpuFloatOutput:max())
         print('fix: ', cpuFixedOutputTmp2:sum(), cpuFixedOutputTmp2:min(), cpuFixedOutputTmp2:max())
@@ -246,5 +255,4 @@ for i=1, #modelcpu do
         actPostWriter:write(struct.pack('<i1', cpuFixedOutput:view(-1)[i]))
     end
     actPostWriter:close()
-
 end

@@ -29,6 +29,7 @@ function M.option()
     cmd:option('-snapshotPath',       'none',       'The snapshot path to resume')
     cmd:option('-shareGradInput',  'false', 'Share gradInput tensors to reduce memory usage')
     cmd:option('-experimentsName',  'none',  'The name of this experiment')
+    cmd:option('-stopNSamples',   -1, 'When to stop after some mini-batches, -1 represent not stop')
     ------------- Data options ------------------------
     cmd:option('-data',              '/work/shadow/',   'imagenet data path')
     cmd:option('-dataset',            'none',       'Dataset want to load')
