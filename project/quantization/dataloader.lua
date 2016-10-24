@@ -8,12 +8,9 @@ local DataLoader = torch.class('quantization.DataLoader', M)
 function DataLoader.create(opt)
     local loaders = {}
 
-    for i, split in ipairs{'train', 'val'} do
-        local dataset = datasets.create(opt, split)
-        loaders[i] = M.DataLoader(dataset, opt, split)
-    end
-
-    return table.unpack(loaders)
+    local dataset = datasets.create(opt, 'val')
+    local loader = M.DataLoader(dataset, opt, 'val')
+    return nil, loader
 end
 
 function DataLoader:__init(dataset, opt, split)
@@ -53,6 +50,9 @@ function DataLoader:run()
                     local target = torch.IntTensor(sz)
                     for i, idx in ipairs(indices:totable()) do
                         local sample = _G.dataset:get(idx)
+                        if sample.input:dim() == 4 then
+                            sample.input = sample.input[1]
+                        end
                         local input = _G.preprocess(sample.input)
                         if not batch then
                             imageSize = input:size():totable()

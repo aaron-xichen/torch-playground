@@ -8,9 +8,17 @@ function lfwDataset:__init(imageInfo, opt, split)
     self.imageInfo = imageInfo[split]
     self.split = split
     self.opt = opt
-    
-    print("Loading from externel mean file " .. self.opt.meanfilePath)
-    self.meanstd = torch.load(self.opt.meanfilePath)
+    if paths.filep(self.opt.meanfilePath) then
+        print("Loading from externel mean file " .. self.opt.meanfilePath)
+        self.meanstd = torch.load(self.opt.meanfilePath)
+    else
+        print("Using internal default mean file")
+        self.meanstd = {
+            factor = 1.0,
+            mean = {0, 0, 0},
+            std = {1.0, 1.0, 1.0}
+        }
+    end
     print(self.meanstd)
 end
 

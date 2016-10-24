@@ -7,6 +7,7 @@ function M.option(cmd)
     cmd:option('-collectNSamples',  10,      'Number of samples to collect')
     cmd:option('-bitWidthConfigPath', 'none',  'Setting file path of bitwidth')
     cmd:option('-metaTablePath', 'meta.config', 'weightShift, biasShift, actShift, biasAlign, winShift, decPosSave, decPosRaw')
+    cmd:option('-valListPath', '/home/chenxi/dataset/LFW/pairs.txt', 'Val file list path')
     cmd:text()
     return cmd
 end

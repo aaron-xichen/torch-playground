@@ -35,8 +35,16 @@ function Trainer:quantizeParam()
                 m.weightShiftBits = self.opt.metaTable[i][1]
                 m.biasShiftBits = self.opt.metaTable[i][2]
             else
-                m.weightShiftBits = -torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
-                m.biasShiftBits = -torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
+                if torch.abs(weight):max() ~=0 then
+                    m.weightShiftBits = -torch.ceil(torch.log(torch.abs(weight):max()) / torch.log(2))
+                else
+                    m.weightShiftBits = 0
+                end
+                if torch.abs(bias):max() ~= 0 then
+                    m.biasShiftBits = -torch.ceil(torch.log(torch.abs(bias):max()) / torch.log(2))
+                else
+                    m.biasShiftBits = 0
+                end
             end
 
             if torch.abs(weight):max() ~= 0  then
@@ -164,6 +172,11 @@ function Trainer:val()
     -- forward
     timer = torch.Timer()
     for n, sample in self.valDataLoader:run() do
+        
+        if n == 1 then
+            print("Saving to input.t7")
+            torch.save('input.t7', sample.input)
+        end
         self:copyInputs(sample)
         print('data: ', torch.sum(torch.abs(sample.input)))
         forwardFunc(self)

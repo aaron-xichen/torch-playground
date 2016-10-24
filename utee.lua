@@ -301,7 +301,9 @@ function M.convertBias(rootPath, meanfilePath, mode)
         end
     )
 
+    model:evaluate()
     -- change BGR to RGB
+    print("Swaping the order of first convolution kernel")
     weight = model:get(1).weight
     tmp = weight[{{}, {1}, {}, {}}]:clone()
     weight[{{}, {1}, {}, {}}] = weight[{{}, {3}, {}, {}}]:clone()
@@ -313,7 +315,7 @@ function M.convertBias(rootPath, meanfilePath, mode)
         meanVal = meanVal:cuda()
     end
     out = model:get(1):forward(meanVal)
-    delta = out[{{}, 100, 100}]
+    delta = out[{{}, 100, 100}] -- sip center pixel
     model:get(1).bias:add(delta)
 
     print("Saving new model to " .. savePath)

@@ -47,10 +47,9 @@ imgs = torch.load('input.t7'):int()[1]:view(1, 3, 224, 224)
 print('image range: ', torch.min(imgs), torch.max(imgs))
 
 -- weight, bias, output, biasAlign, winShift, docPosSave, docPosRaw
-local metaTable = utee.loadTxt('meta.config')
-local bitWidthConfig = utee.loadTxt('bitsSetting.config')
-
-modelcpu = torch.load('/home/chenxi/modelzoo/vgg16/modelCPU.t7')
+local metaTable = utee.loadTxt('meta2.config')
+local bitWidthConfig = utee.loadTxt('bitsSetting2.config')
+modelcpu = torch.load('/home/chenxi/modelzoo/vgg_face/modelCPU.t7')
 modelcpu:evaluate()
 cpuFixed = modelcpu:clone()
 
